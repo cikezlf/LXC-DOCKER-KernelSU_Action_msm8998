@@ -202,10 +202,13 @@ jobs:
           echo "[✓] ramdisk自动挂载脚本（含10次重试）已就绪"
 
       # ==================== 第六步：KernelSU-Next集成 ====================
-      - name: 【KernelSU】部署KernelSU-Next驱动
+      - name: 【KernelSU】部署KernelSU-Next Legacy驱动（本地脚本版，无404）
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          curl -LSs "https://raw.githubusercontent.com/kaho97/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
+          cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
+          chmod 755 ksu-legacy-setup.sh
+          ./ksu-legacy-setup.sh
+          grep -q "CONFIG_KSU" "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" || echo "CONFIG_KSU=y" >> "arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
           echo "[✓] KernelSU-Next Legacy驱动部署完成"
 
 
