@@ -9,273 +9,274 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    # ==================== 第一步：全局环境初始化 ====================
-    - name: 【初始化】加载全局配置
-      run: |
-        grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
-        echo "[✓] 全局配置加载完成"
+      # ==================== 第一步：全局环境初始化 ====================
+      - name: 【初始化】加载全局配置
+        run: |
+          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
+          echo "[✓] 全局配置加载完成"
 
-    - name: 【初始化】安装编译依赖
-      run: |
-        sudo apt-get update
-        sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
-        mkdir -p $GITHUB_WORKSPACE/kernel_workspace
-        echo "[✓] 编译依赖安装完成"
+      - name: 【初始化】安装编译依赖
+        run: |
+          sudo apt-get update
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
+          mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+          echo "[✓] 编译依赖安装完成"
 
-    # ==================== 第二步：编译资源缓存 ====================
-    - name: 【缓存】Clang14工具链
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/kernel_workspace/clang-aosp
-        key: clang-aosp-android13-r450784d
+      # ==================== 第二步：编译资源缓存 ====================
+      - name: 【缓存】Clang14工具链
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/kernel_workspace/clang-aosp
+          key: clang-aosp-android13-r450784d
 
-    - name: 【缓存】内核源码
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/kernel_workspace/android-kernel
-        key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}
+      - name: 【缓存】内核源码
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/kernel_workspace/android-kernel
+          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}
 
-    # ==================== 第三步：拉取编译资源 ====================
-    - name: 【拉取】AOSP Clang14编译器
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        if [ ! -d clang-aosp ]; then
-          git clone -q --depth=1 --single-branch https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
-        fi
-        echo "[✓] Clang14工具链就绪"
-
-    - name: 【拉取】内核源码
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        if [ ! -d android-kernel ]; then
-          git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
-        fi
-        echo "[✓] 内核源码就绪"
-
-    # ==================== 第四步：LXC/Docker全量配置 ====================
-    - name: 【Docker/LXC】写入全量内核配置
-      run: |
-        cd $GITHUB_WORKSPACE
-        DEFCONFIG="kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
-        add_config() {
-          local config="$1"
-          local key="${config%%=*}"
-          local clean_key="${key#\# }"
-          if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
-            sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
-            sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
-          else
-            echo "$config" >> "$DEFCONFIG"
+      # ==================== 第三步：拉取编译资源 ====================
+      - name: 【拉取】AOSP Clang14编译器
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d clang-aosp ]; then
+            git clone -q --depth=1 --single-branch https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
           fi
-        }
-        # 命名空间全量支持
-        add_config "CONFIG_NAMESPACES=y"
-        add_config "CONFIG_UTS_NS=y"
-        add_config "CONFIG_IPC_NS=y"
-        add_config "CONFIG_PID_NS=y"
-        add_config "CONFIG_USER_NS=y"
-        add_config "CONFIG_NET_NS=y"
-        add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
-        # cgroup v1全子系统
-        add_config "CONFIG_CGROUPS=y"
-        add_config "CONFIG_CGROUP_CPUACCT=y"
-        add_config "CONFIG_CGROUP_DEVICE=y"
-        add_config "CONFIG_CGROUP_FREEZER=y"
-        add_config "CONFIG_CGROUP_SCHED=y"
-        add_config "CONFIG_CPUSETS=y"
-        add_config "CONFIG_MEMCG=y"
-        add_config "CONFIG_MEMCG_SWAP=y"
-        add_config "CONFIG_MEMCG_KMEM=y"
-        add_config "CONFIG_BLK_CGROUP=y"
-        add_config "CONFIG_CGROUP_PIDS=y"
-        add_config "CONFIG_CGROUP_PERF=y"
-        add_config "CONFIG_CFS_BANDWIDTH=y"
-        add_config "CONFIG_FAIR_GROUP_SCHED=y"
-        # Docker网络虚拟化
-        add_config "CONFIG_VETH=y"
-        add_config "CONFIG_BRIDGE=y"
-        add_config "CONFIG_BRIDGE_NETFILTER=y"
-        add_config "CONFIG_MACVLAN=y"
-        add_config "CONFIG_IPVLAN=y"
-        add_config "CONFIG_VXLAN=y"
-        add_config "CONFIG_VLAN_8021Q=y"
-        # 完整NAT/Netfilter
-        add_config "CONFIG_NETFILTER=y"
-        add_config "CONFIG_NETFILTER_ADVANCED=y"
-        add_config "CONFIG_NF_CONNTRACK=y"
-        add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
-        add_config "CONFIG_IP_NF_FILTER=y"
-        add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-        add_config "CONFIG_IP_NF_TARGET_REDIRECT=y"
-        add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-        add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-        add_config "CONFIG_NETFILTER_XT_MARK=y"
-        add_config "CONFIG_IP_VS=y"
-        add_config "CONFIG_IP_VS_PROTO_TCP=y"
-        add_config "CONFIG_IP_VS_RR=y"
-        add_config "CONFIG_NF_NAT=y"
-        add_config "CONFIG_NF_NAT_NEEDED=y"
-        add_config "CONFIG_IP6_NF_FILTER=y"
-        add_config "CONFIG_IP6_NF_NAT=y"
-        add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
-        # 容器文件系统
-        add_config "CONFIG_OVERLAY_FS=y"
-        add_config "CONFIG_EXT4_FS=y"
-        add_config "CONFIG_EXT4_FS_POSIX_ACL=y"
-        add_config "CONFIG_EXT4_FS_SECURITY=y"
-        add_config "CONFIG_BTRFS_FS=y"
-        add_config "CONFIG_BTRFS_FS_POSIX_ACL=y"
-        add_config "CONFIG_TMPFS_XATTR=y"
-        add_config "CONFIG_TMPFS_POSIX_ACL=y"
-        add_config "CONFIG_SQUASHFS=y"
-        add_config "CONFIG_SQUASHFS_XATTR=y"
-        # 安全与虚拟化
-        add_config "CONFIG_POSIX_MQUEUE=y"
-        add_config "CONFIG_SECCOMP=y"
-        add_config "CONFIG_SECCOMP_FILTER=y"
-        add_config "CONFIG_CHECKPOINT_RESTORE=y"
-        add_config "CONFIG_FHANDLE=y"
-        add_config "CONFIG_BPF=y"
-        add_config "CONFIG_BPF_SYSCALL=y"
-        add_config "CONFIG_BPF_JIT=y"
-        add_config "CONFIG_CGROUP_BPF=y"
-        # 关闭Android网络限制
-        add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
-        echo "[✓] Docker/LXC全量配置已写入defconfig"
+          echo "[✓] Clang14工具链就绪"
 
-    # ==================== 第五步：cgroup内核级自动挂载 ====================
-    - name: 【cgroup】写入内核自动挂载配置
-      run: |
-        cd $GITHUB_WORKSPACE
-        cat >> kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }} << 'EOF'
-        CONFIG_DEVTMPFS=y
-        CONFIG_DEVTMPFS_MOUNT=y
-        CONFIG_CGROUP_AUTOMOUNT=y
-        CONFIG_TMPFS=y
-        EOF
-                echo "[✓] 内核原生自动挂载开关已开启"
+      - name: 【拉取】内核源码
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d android-kernel ]; then
+            git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+          fi
+          echo "[✓] 内核源码就绪"
 
-    - name: 【cgroup】写入ramdisk自动挂载脚本（含重试机制）
-      run: |
-        cd $GITHUB_WORKSPACE
-        INIT_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d"
-        mkdir -p "$INIT_DIR"
-        cat > "$INIT_DIR/auto-mount-cgroups.sh" << 'MOUNT_SCRIPT'
-        #!/bin/sh
-        set -e
-        MAX_RETRY=10
-        RETRY_INTERVAL=10
-        CGROUP_ROOT="/sys/fs/cgroup"
-        
-        check_subsystem_mounted() {
-            mount | grep -q "cgroup on $CGROUP_ROOT/$1 type cgroup"
-        }
-        
-        do_mount_cgroups() {
-            mount -t tmpfs -o mode=755 tmpfs "$CGROUP_ROOT" 2>/dev/null || true
-            mkdir -p "$CGROUP_ROOT/devices"
-            mount -t cgroup -o devices cgroup "$CGROUP_ROOT/devices" 2>/dev/null || true
-            mkdir -p "$CGROUP_ROOT/systemd"
-            mount -t cgroup -o none,name=systemd cgroup "$CGROUP_ROOT/systemd" 2>/dev/null || true
-            mkdir -p "$CGROUP_ROOT/freezer"
-            mount -t cgroup -o freezer cgroup "$CGROUP_ROOT/freezer" 2>/dev/null || true
-        }
-        
-        retry=0
-        while [ $retry -lt $MAX_RETRY ]; do
-            do_mount_cgroups
-            if check_subsystem_mounted devices && check_subsystem_mounted systemd && check_subsystem_mounted freezer; then
-                echo "[OK] cgroup subsystems auto-mounted (attempt $((retry+1)))"
-                exit 0
+      # ==================== 第四步：LXC/Docker全量配置 ====================
+      - name: 【Docker/LXC】写入全量内核配置
+        run: |
+          cd $GITHUB_WORKSPACE
+          DEFCONFIG="kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
+          add_config() {
+            local config="$1"
+            local key="${config%%=*}"
+            local clean_key="${key#\# }"
+            if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
+              sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
+              sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
+            else
+              echo "$config" >> "$DEFCONFIG"
             fi
-            retry=$((retry+1))
-            sleep $RETRY_INTERVAL
-        done
-        echo "[FAIL] cgroup mount failed after $MAX_RETRY retries"
-        exit 1
-        MOUNT_SCRIPT
-                chmod 755 "$INIT_DIR/auto-mount-cgroups.sh"
-                ln -sf ../init.d/auto-mount-cgroups.sh kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d/S99-auto-mount-cgroups.sh
-                echo "[✓] ramdisk自动挂载脚本（含10次重试）已就绪"
+          }
+          # 命名空间全量支持
+          add_config "CONFIG_NAMESPACES=y"
+          add_config "CONFIG_UTS_NS=y"
+          add_config "CONFIG_IPC_NS=y"
+          add_config "CONFIG_PID_NS=y"
+          add_config "CONFIG_USER_NS=y"
+          add_config "CONFIG_NET_NS=y"
+          add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
+          # cgroup v1全子系统
+          add_config "CONFIG_CGROUPS=y"
+          add_config "CONFIG_CGROUP_CPUACCT=y"
+          add_config "CONFIG_CGROUP_DEVICE=y"
+          add_config "CONFIG_CGROUP_FREEZER=y"
+          add_config "CONFIG_CGROUP_SCHED=y"
+          add_config "CONFIG_CPUSETS=y"
+          add_config "CONFIG_MEMCG=y"
+          add_config "CONFIG_MEMCG_SWAP=y"
+          add_config "CONFIG_MEMCG_KMEM=y"
+          add_config "CONFIG_BLK_CGROUP=y"
+          add_config "CONFIG_CGROUP_PIDS=y"
+          add_config "CONFIG_CGROUP_PERF=y"
+          add_config "CONFIG_CFS_BANDWIDTH=y"
+          add_config "CONFIG_FAIR_GROUP_SCHED=y"
+          # Docker网络虚拟化
+          add_config "CONFIG_VETH=y"
+          add_config "CONFIG_BRIDGE=y"
+          add_config "CONFIG_BRIDGE_NETFILTER=y"
+          add_config "CONFIG_MACVLAN=y"
+          add_config "CONFIG_IPVLAN=y"
+          add_config "CONFIG_VXLAN=y"
+          add_config "CONFIG_VLAN_8021Q=y"
+          # 完整NAT/Netfilter
+          add_config "CONFIG_NETFILTER=y"
+          add_config "CONFIG_NETFILTER_ADVANCED=y"
+          add_config "CONFIG_NF_CONNTRACK=y"
+          add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
+          add_config "CONFIG_IP_NF_FILTER=y"
+          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+          add_config "CONFIG_IP_NF_TARGET_REDIRECT=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
+          add_config "CONFIG_NETFILTER_XT_MARK=y"
+          add_config "CONFIG_IP_VS=y"
+          add_config "CONFIG_IP_VS_PROTO_TCP=y"
+          add_config "CONFIG_IP_VS_RR=y"
+          add_config "CONFIG_NF_NAT=y"
+          add_config "CONFIG_NF_NAT_NEEDED=y"
+          add_config "CONFIG_IP6_NF_FILTER=y"
+          add_config "CONFIG_IP6_NF_NAT=y"
+          add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+          # 容器文件系统
+          add_config "CONFIG_OVERLAY_FS=y"
+          add_config "CONFIG_EXT4_FS=y"
+          add_config "CONFIG_EXT4_FS_POSIX_ACL=y"
+          add_config "CONFIG_EXT4_FS_SECURITY=y"
+          add_config "CONFIG_BTRFS_FS=y"
+          add_config "CONFIG_BTRFS_FS_POSIX_ACL=y"
+          add_config "CONFIG_TMPFS_XATTR=y"
+          add_config "CONFIG_TMPFS_POSIX_ACL=y"
+          add_config "CONFIG_SQUASHFS=y"
+          add_config "CONFIG_SQUASHFS_XATTR=y"
+          # 安全与虚拟化
+          add_config "CONFIG_POSIX_MQUEUE=y"
+          add_config "CONFIG_SECCOMP=y"
+          add_config "CONFIG_SECCOMP_FILTER=y"
+          add_config "CONFIG_CHECKPOINT_RESTORE=y"
+          add_config "CONFIG_FHANDLE=y"
+          add_config "CONFIG_BPF=y"
+          add_config "CONFIG_BPF_SYSCALL=y"
+          add_config "CONFIG_BPF_JIT=y"
+          add_config "CONFIG_CGROUP_BPF=y"
+          # 关闭Android网络限制
+          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+          echo "[✓] Docker/LXC全量配置已写入defconfig"
 
-    # ==================== 第六步：KernelSU-Next集成 ====================
-    - name: 【KernelSU】部署KernelSU-Next驱动
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        curl -LSs "https://raw.githubusercontent.com/kaho97/KernelSU-Next/legacy/KernelSU-Next_legacy_kernel_setup_1.sh" | bash
-        grep -q "CONFIG_KSU" "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" || echo "CONFIG_KSU=y" >> "arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
-        echo "[✓] KernelSU-Next Legacy驱动部署完成"
+      # ==================== 第五步：cgroup内核级自动挂载 ====================
+      - name: 【cgroup】写入内核自动挂载配置
+        run: |
+          cd $GITHUB_WORKSPACE
+          cat >> kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }} << 'EOF'
+          CONFIG_DEVTMPFS=y
+          CONFIG_DEVTMPFS_MOUNT=y
+          CONFIG_CGROUP_AUTOMOUNT=y
+          CONFIG_TMPFS=y
+          EOF
+          echo "[✓] 内核原生自动挂载开关已开启"
 
-    # ==================== 第七步：内核编译 ====================
-    - name: 【编译】生成最终内核配置
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
-        make O=out ARCH=arm64 olddefconfig
-        echo "[✓] 内核配置生成完成"
+      - name: 【cgroup】写入ramdisk自动挂载脚本（含重试机制）
+        run: |
+          cd $GITHUB_WORKSPACE
+          INIT_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d"
+          RCS_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d"
+          mkdir -p "$INIT_DIR" "$RCS_DIR"
+          cat > "$INIT_DIR/auto-mount-cgroups.sh" << 'MOUNT_SCRIPT'
+          #!/bin/sh
+          set -e
+          MAX_RETRY=10
+          RETRY_INTERVAL=10
+          CGROUP_ROOT="/sys/fs/cgroup"
 
-    - name: 【编译】正式编译内核
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
-        export KBUILD_BUILD_HOST=HyperPower
-        export KBUILD_BUILD_USER=MI6-FullFunction
-        if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
-          make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
-            CLANG_TRIPLE="aarch64-linux-gnu-" \
-            CROSS_COMPILE="aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-            KCFLAGS="-Wno-error" \
-            LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
-        else
-          make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
-            CLANG_TRIPLE="aarch64-linux-gnu-" \
-            CROSS_COMPILE="aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-            KCFLAGS="-Wno-error" 2>&1 | tee build.log
-        fi
-        echo "[✓] 内核编译完成"
+          check_subsystem_mounted() {
+              mount | grep -q "cgroup on $CGROUP_ROOT/$1 type cgroup"
+          }
 
-    # ==================== 第八步：打包可刷入镜像 ====================
-    - name: 【打包】制作AnyKernel3刷机包
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone https://github.com/osm0sis/AnyKernel3
-        cd AnyKernel3
-        sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-        sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
-        sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' anykernel.sh
-        sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
-        sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
-        sed -i 's/device.name2=toro/device.name2=/g' anykernel.sh
-        sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
-        sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
-        sed -i '/init.tuna.rc/d' anykernel.sh
-        sed -i '/fstab.tuna/d' anykernel.sh
-        sed -i '/replace_string init.rc/d' anykernel.sh
-        sed -i '/insert_line init.tuna/d' anykernel.sh
-        sed -i '/patch_fstab fstab.tuna/d' anykernel.sh
-        sed -i '/append_file init.tuna/d' anykernel.sh
-        sed -i '/append_file fstab.tuna/d' anykernel.sh
-        sed -i '/bootscript/d' anykernel.sh
-        sed -i '/usbdisk/d' anykernel.sh
-        cd ..
-        cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
-        rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
-        echo "[✓] 可刷入刷机包打包完成"
+          do_mount_cgroups() {
+              mount -t tmpfs -o mode=755 tmpfs "$CGROUP_ROOT" 2>/dev/null || true
+              mkdir -p "$CGROUP_ROOT/devices"
+              mount -t cgroup -o devices cgroup "$CGROUP_ROOT/devices" 2>/dev/null || true
+              mkdir -p "$CGROUP_ROOT/systemd"
+              mount -t cgroup -o none,name=systemd cgroup "$CGROUP_ROOT/systemd" 2>/dev/null || true
+              mkdir -p "$CGROUP_ROOT/freezer"
+              mount -t cgroup -o freezer cgroup "$CGROUP_ROOT/freezer" 2>/dev/null || true
+          }
 
-    # ==================== 第九步：产物上传 ====================
-    - name: 【上传】内核刷机包
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ env.KERNEL_ZIP_NAME }}
-        path: kernel_workspace/AnyKernel3/*
+          retry=0
+          while [ $retry -lt $MAX_RETRY ]; do
+              do_mount_cgroups
+              if check_subsystem_mounted devices && check_subsystem_mounted systemd && check_subsystem_mounted freezer; then
+                  echo "[OK] cgroup subsystems auto-mounted (attempt $((retry+1)))"
+                  exit 0
+              fi
+              retry=$((retry+1))
+              sleep $RETRY_INTERVAL
+          done
+          echo "[FAIL] cgroup mount failed after $MAX_RETRY retries"
+          exit 1
+          MOUNT_SCRIPT
+          chmod 755 "$INIT_DIR/auto-mount-cgroups.sh"
+          ln -sf ../init.d/auto-mount-cgroups.sh "$RCS_DIR/S99-auto-mount-cgroups.sh"
+          echo "[✓] ramdisk自动挂载脚本（含10次重试）已就绪"
 
-    - name: 【上传】编译日志
-      uses: actions/upload-artifact@v4
-      with:
-        name: 内核构建日志
-        path: kernel_workspace/android-kernel/build.log
-        if-no-files-found: warn
+      # ==================== 第六步：KernelSU-Next集成 ====================
+      - name: 【KernelSU】部署KernelSU-Next驱动
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          curl -LSs "https://raw.githubusercontent.com/kaho97/KernelSU-Next/legacy/KernelSU-Next_legacy_kernel_setup_1.sh" | bash
+          grep -q "CONFIG_KSU" "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" || echo "CONFIG_KSU=y" >> "arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
+          echo "[✓] KernelSU-Next Legacy驱动部署完成"
+
+      # ==================== 第七步：内核编译 ====================
+      - name: 【编译】生成最终内核配置
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+          make O=out ARCH=arm64 olddefconfig
+          echo "[✓] 内核配置生成完成"
+
+      - name: 【编译】正式编译内核
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
+          export KBUILD_BUILD_HOST=HyperPower
+          export KBUILD_BUILD_USER=MI6-FullFunction
+          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
+            make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+              KCFLAGS="-Wno-error" \
+              LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
+          else
+            make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+              KCFLAGS="-Wno-error" 2>&1 | tee build.log
+          fi
+          echo "[✓] 内核编译完成"
+
+      # ==================== 第八步：打包可刷入镜像 ====================
+      - name: 【打包】制作AnyKernel3刷机包
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          git clone https://github.com/osm0sis/AnyKernel3
+          cd AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
+          sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' anykernel.sh
+          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
+          sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=/g' anykernel.sh
+          sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
+          sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
+          sed -i '/init.tuna.rc/d' anykernel.sh
+          sed -i '/fstab.tuna/d' anykernel.sh
+          sed -i '/replace_string init.rc/d' anykernel.sh
+          sed -i '/insert_line init.tuna/d' anykernel.sh
+          sed -i '/patch_fstab fstab.tuna/d' anykernel.sh
+          sed -i '/append_file init.tuna/d' anykernel.sh
+          sed -i '/append_file fstab.tuna/d' anykernel.sh
+          sed -i '/bootscript/d' anykernel.sh
+          sed -i '/usbdisk/d' anykernel.sh
+          cd ..
+          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
+          rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
+          echo "[✓] 可刷入刷机包打包完成"
+
+      # ==================== 第九步：产物上传 ====================
+      - name: 【上传】内核刷机包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_ZIP_NAME }}
+          path: kernel_workspace/AnyKernel3/*
+
+      - name: 【上传】编译日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: 内核构建日志
+          path: kernel_workspace/android-kernel/build.log
+          if-no-files-found: warn
