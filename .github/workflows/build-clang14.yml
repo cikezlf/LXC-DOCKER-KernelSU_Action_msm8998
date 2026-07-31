@@ -205,8 +205,7 @@ jobs:
       - name: 【KernelSU】部署KernelSU-Next驱动
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          curl -LSsf "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
-          grep -q "CONFIG_KSU" "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" || echo "CONFIG_KSU=y" >> "arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
+          curl -LSs "https://raw.githubusercontent.com/kaho97/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
           echo "[✓] KernelSU-Next Legacy驱动部署完成"
 
 
