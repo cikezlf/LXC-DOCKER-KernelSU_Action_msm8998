@@ -54,15 +54,23 @@ jobs:
           fi
           echo "[✓] 内核源码就绪"
 
-      # ==================== 第四步：LXC/Docker全量配置 ====================
-      - name: 【Docker/LXC】写入全量内核配置
+      # ==================== 第四步：先生成基础内核配置，修复逻辑错位覆盖问题 ====================
+      - name: 【编译】生成基础内核默认配置
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+          echo "[✓] 基础内核配置生成完成"
+
+      # ==================== 第五步：DroidSpaces + Docker/LXC 全量配置（直接操作编译生效的 out/.config，修复路径错误和转义错误） ====================
+      - name: 【全量配置】写入 DroidSpaces 与 Docker/LXC 内核配置
         run: |
           cd $GITHUB_WORKSPACE
-          DEFCONFIG="kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
+          DEFCONFIG="kernel_workspace/android-kernel/out/.config"
           add_config() {
             local config="$1"
             local key="${config%%=*}"
-            local clean_key="${key#\# }"
+            # 修复：移除多余的反斜杠转义符，确保注释类配置项可正确匹配
+            local clean_key="${key# }"
             if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
               sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
               sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
@@ -70,44 +78,26 @@ jobs:
               echo "$config" >> "$DEFCONFIG"
             fi
           }
-          # 新增指定内核配置项
-          add_config "CONFIG_UNIX98_PTYS=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y"
-          add_config "CONFIG_UNIX_DIAG=y"
-          add_config "CONFIG_PACKET_DIAG=y"
-          add_config "CONFIG_NETLINK_DIAG=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
-          add_config "CONFIG_BLK_DEV_THROTTLING=y"
-          add_config "CONFIG_HUGETLB_PAGE=y"
-          add_config "CONFIG_CGROUP_HUGETLB=y"
-          add_config "CONFIG_NET_CLS_CGROUP=y"
-          add_config "CONFIG_CGROUP_NET_PRIO=y"
-          add_config "CONFIG_IP_SCTP=y"
-          add_config "CONFIG_IP_VS_NFCT=y"
-          add_config "CONFIG_IP_VS_PROTO_UDP=y"
-          add_config "CONFIG_SECURITY=y"
-          add_config "CONFIG_SECURITY_APPARMOR=y"
-          add_config "CONFIG_NF_TABLES=y"
-          add_config "CONFIG_NFT_CT=y"
-          add_config "CONFIG_NF_TABLES_IPV4=y"
-          add_config "CONFIG_NFT_FIB_IPV4=y"
-          add_config "CONFIG_NFT_FIB=y"
-          add_config "CONFIG_NF_TABLES_IPV6=y"
-          add_config "CONFIG_NFT_FIB_IPV6=y"
-          add_config "CONFIG_IPV6=y"
-          add_config "CONFIG_NFT_MASQ=y"
-          add_config "CONFIG_NFT_NAT=y"
-          add_config "CONFIG_BRIDGE_VLAN_FILTERING=y"
-          add_config "CONFIG_MODULES=y"
-          # 命名空间全量支持
+
+          # ---------- IPC 进程间通信机制 ----------
+          add_config "CONFIG_SYSCTL=y"
+          add_config "CONFIG_SYSVIPC=y"
+          add_config "CONFIG_POSIX_MQUEUE=y"
+
+          # ---------- 核心命名空间支持 ----------
           add_config "CONFIG_NAMESPACES=y"
+          add_config "CONFIG_PID_NS=y"
           add_config "CONFIG_UTS_NS=y"
           add_config "CONFIG_IPC_NS=y"
-          add_config "CONFIG_PID_NS=y"
           add_config "CONFIG_USER_NS=y"
           add_config "CONFIG_NET_NS=y"
           add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
-          # cgroup v1全子系统
+
+          # ---------- Seccomp 安全计算模式 ----------
+          add_config "CONFIG_SECCOMP=y"
+          add_config "CONFIG_SECCOMP_FILTER=y"
+
+          # ---------- Cgroup v1 全子系统支持 ----------
           add_config "CONFIG_CGROUPS=y"
           add_config "CONFIG_CGROUP_CPUACCT=y"
           add_config "CONFIG_CGROUP_DEVICE=y"
@@ -122,71 +112,139 @@ jobs:
           add_config "CONFIG_CGROUP_PERF=y"
           add_config "CONFIG_CFS_BANDWIDTH=y"
           add_config "CONFIG_FAIR_GROUP_SCHED=y"
-          # Docker网络虚拟化
-          add_config "CONFIG_VETH=y"
-          add_config "CONFIG_BRIDGE=y"
-          add_config "CONFIG_BRIDGE_NETFILTER=y"
-          add_config "CONFIG_MACVLAN=y"
-          add_config "CONFIG_IPVLAN=y"
-          add_config "CONFIG_VXLAN=y"
-          add_config "CONFIG_VLAN_8021Q=y"
-          # 完整NAT/Netfilter
-          add_config "CONFIG_NETFILTER=y"
-          add_config "CONFIG_NETFILTER_ADVANCED=y"
-          add_config "CONFIG_NF_CONNTRACK=y"
-          add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
-          add_config "CONFIG_IP_NF_FILTER=y"
-          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-          add_config "CONFIG_IP_NF_TARGET_REDIRECT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-          add_config "CONFIG_NETFILTER_XT_MARK=y"
-          add_config "CONFIG_IP_VS=y"
-          add_config "CONFIG_IP_VS_PROTO_TCP=y"
-          add_config "CONFIG_IP_VS_RR=y"
-          add_config "CONFIG_NF_NAT=y"
-          add_config "CONFIG_NF_NAT_NEEDED=y"
-          add_config "CONFIG_IP6_NF_FILTER=y"
-          add_config "CONFIG_IP6_NF_NAT=y"
-          add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
-          # 容器文件系统
+          add_config "CONFIG_CGROUP_NET_PRIO=y"
+          add_config "CONFIG_CGROUP_HUGETLB=y"
+          add_config "CONFIG_NET_CLS_CGROUP=y"
+          add_config "CONFIG_BLK_DEV_THROTTLING=y"
+          add_config "CONFIG_CGROUP_BPF=y"
+
+          # ---------- 设备文件系统与固件加载 ----------
+          add_config "CONFIG_DEVTMPFS=y"
+          add_config "CONFIG_DEVTMPFS_MOUNT=y"
+          add_config "CONFIG_FW_LOADER=y"
+          add_config "CONFIG_FW_LOADER_USER_HELPER=y"
+          add_config "CONFIG_FW_LOADER_COMPRESS=y"
+
+          # ---------- Overlay 文件系统（容器 volatile 模式必需） ----------
           add_config "CONFIG_OVERLAY_FS=y"
+
+          # ---------- Tmpfs 扩展属性与 POSIX ACL（NixOS 兼容） ----------
+          add_config "CONFIG_TMPFS_XATTR=y"
+          add_config "CONFIG_TMPFS_POSIX_ACL=y"
+
+          # ---------- 容器文件系统全面支持 ----------
           add_config "CONFIG_EXT4_FS=y"
           add_config "CONFIG_EXT4_FS_POSIX_ACL=y"
           add_config "CONFIG_EXT4_FS_SECURITY=y"
           add_config "CONFIG_BTRFS_FS=y"
           add_config "CONFIG_BTRFS_FS_POSIX_ACL=y"
-          add_config "CONFIG_TMPFS_XATTR=y"
-          add_config "CONFIG_TMPFS_POSIX_ACL=y"
           add_config "CONFIG_SQUASHFS=y"
           add_config "CONFIG_SQUASHFS_XATTR=y"
-          # 安全与虚拟化
-          add_config "CONFIG_POSIX_MQUEUE=y"
-          add_config "CONFIG_SECCOMP=y"
-          add_config "CONFIG_SECCOMP_FILTER=y"
-          add_config "CONFIG_CHECKPOINT_RESTORE=y"
+
+          # ---------- Docker 网络虚拟化 ----------
+          add_config "CONFIG_VETH=y"
+          add_config "CONFIG_BRIDGE=y"
+          add_config "CONFIG_BRIDGE_NETFILTER=y"
+          add_config "CONFIG_BRIDGE_VLAN_FILTERING=y"
+          add_config "CONFIG_MACVLAN=y"
+          add_config "CONFIG_IPVLAN=y"
+          add_config "CONFIG_VXLAN=y"
+          add_config "CONFIG_VLAN_8021Q=y"
+
+          # ---------- 完整 NAT / Netfilter 框架 ----------
+          add_config "CONFIG_NETFILTER=y"
+          add_config "CONFIG_NETFILTER_ADVANCED=y"
+          add_config "CONFIG_NF_CONNTRACK=y"
+          add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
+          add_config "CONFIG_NF_CONNTRACK_NETLINK=y"
+          add_config "CONFIG_NF_TABLES=y"
+          add_config "CONFIG_NF_TABLES_IPV4=y"
+          add_config "CONFIG_NF_TABLES_IPV6=y"
+          add_config "CONFIG_NFT_CT=y"
+          add_config "CONFIG_NFT_FIB=y"
+          add_config "CONFIG_NFT_FIB_IPV4=y"
+          add_config "CONFIG_NFT_FIB_IPV6=y"
+          add_config "CONFIG_NFT_MASQ=y"
+          add_config "CONFIG_NFT_NAT=y"
+          add_config "CONFIG_NF_NAT=y"
+          add_config "CONFIG_NF_NAT_NEEDED=y"
+          add_config "CONFIG_NF_NAT_REDIRECT=y"
+          add_config "CONFIG_IP_NF_FILTER=y"
+          add_config "CONFIG_IP_NF_IPTABLES=y"
+          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+          add_config "CONFIG_IP_NF_TARGET_REDIRECT=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+          add_config "CONFIG_NETFILTER_XT_MARK=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
+
+          # ---------- IPVS 负载均衡 ----------
+          add_config "CONFIG_IP_VS=y"
+          add_config "CONFIG_IP_VS_NFCT=y"
+          add_config "CONFIG_IP_VS_PROTO_TCP=y"
+          add_config "CONFIG_IP_VS_PROTO_UDP=y"
+          add_config "CONFIG_IP_VS_RR=y"
+
+          # ---------- IPv6 支持 ----------
+          add_config "CONFIG_IPV6=y"
+          add_config "CONFIG_IP6_NF_FILTER=y"
+          add_config "CONFIG_IP6_NF_NAT=y"
+          add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+
+          # ---------- 高级路由与多路由表 ----------
+          add_config "CONFIG_IP_ADVANCED_ROUTER=y"
+          add_config "CONFIG_IP_MULTIPLE_TABLES=y"
+
+          # ---------- 传统兼容层（旧版内核网络支持） ----------
+          add_config "CONFIG_NF_CONNTRACK_IPV4=y"
+          add_config "CONFIG_NF_NAT_IPV4=y"
+          add_config "CONFIG_IP_NF_NAT=y"
+
+          # ---------- Unix 域套接字诊断 ----------
+          add_config "CONFIG_UNIX_DIAG=y"
+          add_config "CONFIG_PACKET_DIAG=y"
+          add_config "CONFIG_NETLINK_DIAG=y"
+          add_config "CONFIG_UNIX98_PTYS=y"
+
+          # ---------- SCTP 协议 ----------
+          add_config "CONFIG_IP_SCTP=y"
+
+          # ---------- 透明大页 ----------
+          add_config "CONFIG_HUGETLB_PAGE=y"
+
+          # ---------- 安全模块 ----------
+          add_config "CONFIG_SECURITY=y"
+          add_config "CONFIG_SECURITY_APPARMOR=y"
           add_config "CONFIG_FHANDLE=y"
+          add_config "CONFIG_CHECKPOINT_RESTORE=y"
+
+          # ---------- BPF 扩展伯克利包过滤器 ----------
           add_config "CONFIG_BPF=y"
           add_config "CONFIG_BPF_SYSCALL=y"
           add_config "CONFIG_BPF_JIT=y"
-          add_config "CONFIG_CGROUP_BPF=y"
-          # 关闭Android网络限制
-          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
-          echo "[✓] Docker/LXC全量配置已写入defconfig"
 
-      # ==================== 第五步：cgroup内核级自动挂载 ====================
+          # ---------- 内核模块支持 ----------
+          add_config "CONFIG_MODULES=y"
+
+          # ---------- 关闭 Android 网络限制（修复 Docker 网络异常） ----------
+          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+
+          echo "[✓] DroidSpaces 与 Docker/LXC 全量配置已写入最终编译配置文件"
+
+      # ==================== 第六步：cgroup 内核级自动挂载 ====================
       - name: 【cgroup】写入内核自动挂载配置
         run: |
-          cd $GITHUB_WORKSPACE
-          cat >> kernel_workspace/android-kernel/arch/arm64/configs/${{ env.KERNEL_CONFIG }} << 'EOF'
-          CONFIG_DEVTMPFS=y
-          CONFIG_DEVTMPFS_MOUNT=y
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cat >> out/.config << 'EOF'
           CONFIG_CGROUP_AUTOMOUNT=y
           CONFIG_TMPFS=y
           EOF
           echo "[✓] 内核原生自动挂载开关已开启"
 
-      - name: 【cgroup】写入ramdisk自动挂载脚本（含重试机制）
+      - name: 【cgroup】写入 ramdisk 自动挂载脚本（含重试机制）
         run: |
           cd $GITHUB_WORKSPACE
           INIT_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d"
@@ -217,37 +275,35 @@ jobs:
           while [ $retry -lt $MAX_RETRY ]; do
               do_mount_cgroups
               if check_subsystem_mounted devices && check_subsystem_mounted systemd && check_subsystem_mounted freezer; then
-                  echo "[OK] cgroup subsystems auto-mounted (attempt $((retry+1)))"
+                  echo "[OK] cgroup 子系统自动挂载成功（尝试次数：$((retry+1))）"
                   exit 0
               fi
               retry=$((retry+1))
               sleep $RETRY_INTERVAL
           done
-          echo "[FAIL] cgroup mount failed after $MAX_RETRY retries"
+          echo "[FAIL] cgroup 挂载失败，已重试 $MAX_RETRY 次"
           exit 1
           MOUNT_SCRIPT
           chmod 755 "$INIT_DIR/auto-mount-cgroups.sh"
           ln -sf ../init.d/auto-mount-cgroups.sh "$RCS_DIR/S99-auto-mount-cgroups.sh"
-          echo "[✓] ramdisk自动挂载脚本（含10次重试）已就绪"
+          echo "[✓] ramdisk 自动挂载脚本（含 10 次重试）已就绪"
 
-      # ==================== 第六步：KernelSU-Next集成 ====================
-      - name: 【KernelSU】部署KernelSU-Next Legacy驱动（本地脚本版，无404）
+      # ==================== 第七步：KernelSU-Next 集成 ====================
+      - name: 【KernelSU】部署 KernelSU-Next Legacy 驱动（本地脚本版，避免 404）
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
           chmod 755 ksu-legacy-setup.sh
           ./ksu-legacy-setup.sh
-          grep -q "CONFIG_KSU" "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" || echo "CONFIG_KSU=y" >> "arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
-          echo "[✓] KernelSU-Next Legacy驱动部署完成"
+          grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
+          echo "[✓] KernelSU-Next Legacy 驱动部署完成"
 
-
-      # ==================== 第七步：内核编译 ====================
-      - name: 【编译】生成最终内核配置
+      # ==================== 第八步：内核编译 ====================
+      - name: 【编译】最终同步内核配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
           make O=out ARCH=arm64 olddefconfig
-          echo "[✓] 内核配置生成完成"
+          echo "[✓] 最终内核配置同步完成"
 
       - name: 【编译】正式编译内核
         run: |
@@ -271,8 +327,8 @@ jobs:
           fi
           echo "[✓] 内核编译完成"
 
-      # ==================== 第八步：打包可刷入镜像 ====================
-      - name: 【打包】制作AnyKernel3刷机包
+      # ==================== 第九步：打包可刷入镜像 ====================
+      - name: 【打包】制作 AnyKernel3 刷机包
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           git clone https://github.com/osm0sis/AnyKernel3
@@ -299,7 +355,7 @@ jobs:
           rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
           echo "[✓] 可刷入刷机包打包完成"
 
-      # ==================== 第九步：产物上传 ====================
+      # ==================== 第十步：产物上传 ====================
       - name: 【上传】内核刷机包
         uses: actions/upload-artifact@v4
         with:
@@ -312,4 +368,3 @@ jobs:
           name: 内核构建日志
           path: kernel_workspace/android-kernel/build.log
           if-no-files-found: warn
-          
