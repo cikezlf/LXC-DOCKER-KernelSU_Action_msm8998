@@ -70,6 +70,35 @@ jobs:
               echo "$config" >> "$DEFCONFIG"
             fi
           }
+          # 新增指定内核配置项
+          add_config "CONFIG_UNIX98_PTYS=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y"
+          add_config "CONFIG_UNIX_DIAG=y"
+          add_config "CONFIG_PACKET_DIAG=y"
+          add_config "CONFIG_NETLINK_DIAG=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+          add_config "CONFIG_BLK_DEV_THROTTLING=y"
+          add_config "CONFIG_HUGETLB_PAGE=y"
+          add_config "CONFIG_CGROUP_HUGETLB=y"
+          add_config "CONFIG_NET_CLS_CGROUP=y"
+          add_config "CONFIG_CGROUP_NET_PRIO=y"
+          add_config "CONFIG_IP_SCTP=y"
+          add_config "CONFIG_IP_VS_NFCT=y"
+          add_config "CONFIG_IP_VS_PROTO_UDP=y"
+          add_config "CONFIG_SECURITY=y"
+          add_config "CONFIG_SECURITY_APPARMOR=y"
+          add_config "CONFIG_NF_TABLES=y"
+          add_config "CONFIG_NFT_CT=y"
+          add_config "CONFIG_NF_TABLES_IPV4=y"
+          add_config "CONFIG_NFT_FIB_IPV4=y"
+          add_config "CONFIG_NFT_FIB=y"
+          add_config "CONFIG_NF_TABLES_IPV6=y"
+          add_config "CONFIG_NFT_FIB_IPV6=y"
+          add_config "CONFIG_IPV6=y"
+          add_config "CONFIG_NFT_MASQ=y"
+          add_config "CONFIG_NFT_NAT=y"
+          add_config "CONFIG_BRIDGE_VLAN_FILTERING=y"
+          add_config "CONFIG_MODULES=y"
           # 命名空间全量支持
           add_config "CONFIG_NAMESPACES=y"
           add_config "CONFIG_UTS_NS=y"
@@ -283,3 +312,4 @@ jobs:
           name: 内核构建日志
           path: kernel_workspace/android-kernel/build.log
           if-no-files-found: warn
+          
