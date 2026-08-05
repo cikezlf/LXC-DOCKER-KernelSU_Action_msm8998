@@ -611,16 +611,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          # 备份
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-
-          # 探查：查看所有包含 aa_calc 的行
-          echo "=== 探查文件中所有 aa_calc 相关行 ==="
-          grep -n "aa_calc" security/apparmor/crypto.c || echo "(未找到 aa_calc 相关行)"
-
-          # 探查：查看所有包含 char ctx 的行
-          echo "=== 探查文件中所有 'char ctx' 行 ==="
-          grep -n "char ctx" security/apparmor/crypto.c || echo "(未找到 char ctx 行)"
 
           python3 << 'PYEOF'
           import re
@@ -628,31 +619,17 @@ jobs:
           with open('security/apparmor/crypto.c', 'r') as f:
               content = f.read()
 
-          # 尝试多种可能的函数签名模式
-          patterns = [
-              r'int\s+aa_calc_sha256\s*$[^)]*$\s*\{',       # 最标准
-              r'int\s+aa_calc_hash\s*$[^)]*$\s*\{',          # 可能简化名
-              r'int\s+aa_calc\w*\s*$[^)]*$\s*\{',            # 通配匹配
-              r'static\s+int\s+aa_calc\w*\s*$[^)]*$\s*\{',   # 带 static 修饰
-          ]
-
-          match = None
-          for p in patterns:
-              m = re.search(p, content)
-              if m:
-                  print(f"[✓] 匹配到函数签名：{m.group(0)}")
-                  match = m
-                  break
-
+          # 匹配跨行的函数签名：int aa_calc_profile_hash(...)
+          pattern = r'int\s+aa_calc_profile_hash\s*$[^)]*$\s*\n?\s*\{'
+          match = re.search(pattern, content, flags=re.DOTALL)
           if not match:
-              print("[✗] 所有模式均未匹配，请检查上方探查输出")
-              # 输出文件前 100 行帮助定位
-              print("=== 文件前 100 行 ===")
-              print(content[:3000])
+              print("[✗] 未匹配到 aa_calc_profile_hash 函数定义")
               exit(1)
 
+          print(f"[✓] 匹配到函数签名：{match.group(0)[:80]}...")
           func_start = match.start()
-          # 括号匹配定位函数体结束
+
+          # 括号匹配定位函数体结束位置
           depth = 1
           pos = match.end()
           while pos < len(content) and depth > 0:
@@ -663,46 +640,73 @@ jobs:
               pos += 1
 
           if depth != 0:
-              print("[✗] 函数体花括号不匹配，终止修复")
+              print("[✗] 函数体花括号不匹配")
               exit(1)
 
-          # 替换函数体
-          new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
+          # 替换后的新函数：用 kzalloc 替代栈上变长数组
+          new_func = '''int aa_calc_profile_hash(struct aa_profile *profile, u32 version, void *start,
+                         size_t len)
           {
               struct shash_desc *desc;
-              char *ctx;
-              int err;
-              ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
-              if (!ctx)
-                  return -ENOMEM;
-              desc = (struct shash_desc *)ctx;
+              int error = -ENOMEM;
+              u32 le32_version = cpu_to_le32(version);
+
+              if (!apparmor_tfm)
+                  return 0;
+
+              profile->hash = kzalloc(apparmor_hash_size, GFP_KERNEL);
+              if (!profile->hash)
+                  goto fail;
+
+              desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
+              if (!desc)
+                  goto fail;
+
               desc->tfm = apparmor_tfm;
-              err = crypto_shash_init(desc);
-              if (err)
-                  goto free_ctx;
-              err = crypto_shash_update(desc, data, len);
-              if (err)
-                  goto free_ctx;
-              err = crypto_shash_final(desc, hash);
-          free_ctx:
-              kfree(ctx);
-              return err;
+              desc->flags = 0;
+
+              error = crypto_shash_init(desc);
+              if (error)
+                  goto fail_desc;
+
+              error = crypto_shash_update(desc, (u8 *)&le32_version, 4);
+              if (error)
+                  goto fail_desc;
+
+              error = crypto_shash_update(desc, (u8 *)start, len);
+              if (error)
+                  goto fail_desc;
+
+              error = crypto_shash_final(desc, profile->hash);
+              if (error)
+                  goto fail_desc;
+
+              kfree(desc);
+              return 0;
+
+          fail_desc:
+              kfree(desc);
+          fail:
+              kfree(profile->hash);
+              profile->hash = NULL;
+              return error;
           }'''
 
           content = content[:func_start] + new_func + content[pos:]
           with open('security/apparmor/crypto.c', 'w') as f:
               f.write(content)
 
-          print("[✓] 函数替换完成")
+          print("[✓] aa_calc_profile_hash 函数替换完成")
           PYEOF
 
-          # 校验
+          # 校验：确认变长数组语法已消失
           if grep -q "char ctx\[crypto_shash_descsize" security/apparmor/crypto.c; then
-            echo "[✗] 变长数组行仍然存在，变通修复失败"
+            echo "[✗] 变长数组行仍然存在，修复失败"
             exit 1
           else
-            echo "[✓] AppArmor 变长数组兼容修复完成"
+            echo "[✓] AppArmor 变长数组兼容修复完成，已适配 Clang14"
           fi
+
 
 
 
