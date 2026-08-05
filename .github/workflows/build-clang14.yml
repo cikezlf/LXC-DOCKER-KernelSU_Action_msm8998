@@ -606,22 +606,17 @@ jobs:
           echo "[✓] 最终内核配置同步完成"
 
       # ==================== 修复步骤：兼容Clang修复AppArmor变长数组 ====================
-      - name: 【修复Clang兼容】处理AppArmor crypto.c变长数组编译错误
+      - name: 【强修复】解决AppArmor crypto.c变长数组Clang编译错误
         id: clang-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          
-          # 备份原始文件
+          # 备份原始文件避免异常
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          
-          # 将第37行的栈上变长数组替换为动态内存分配
-          sed -i '/char ctx$crypto_shash_descsize(apparmor_tfm)$;/c\
-          \tstruct shash_desc *ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);\
-          \tif (!ctx) return -ENOMEM;' security/apparmor/crypto.c
-          
-          # 在函数所有return返回点之前自动插入kfree释放逻辑
+          # 直接匹配目标行的精确内容，替换为标准内核动态内存分配写法
+          sed -i '/char ctx$crypto_shash_descsize(apparmor_tfm)$;/d' security/apparmor/crypto.c
+          sed -i '/struct shash_desc \*desc;/a\ \tstruct shash_desc *ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);\n\tif (!ctx) return -ENOMEM;' security/apparmor/crypto.c
+          # 自动在所有函数返回点前插入内存释放逻辑，完全避免内存泄漏
           sed -i '/:space:]]*return /i\ \tif (ctx) kfree(ctx);' security/apparmor/crypto.c
-          
           # 校验修改结果
           echo "=== 补丁修改内容确认 ==="
           diff security/apparmor/crypto.c security/apparmor/crypto.c.bak
@@ -715,6 +710,7 @@ jobs:
           
           # grep 添加 || true 防止非零返回值触发 set -e 退出
           TOTAL_CONFIGS=$(grep -c '^CONFIG_' "$CONFIG_FILE" || true)
+
           ENABLED_CONFIGS=$(grep -c '^CONFIG_.*=y' "$CONFIG_FILE" || true)
           MODULE_CONFIGS=$(grep -c '^CONFIG_.*=m' "$CONFIG_FILE" || true)
           
@@ -732,6 +728,7 @@ jobs:
           export KBUILD_BUILD_HOST=HyperPower
           export KBUILD_BUILD_USER=MI6-FullFunction
       
+          # 开启管道状态传递，避免tee吞掉make的报错码
           set -o pipefail
       
           if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
@@ -749,6 +746,7 @@ jobs:
               KCFLAGS="-Wno-error" 2>&1 | tee build.log
           fi
       
+          # 显式校验make的返回状态，编译失败直接终止流程
           if [ ${PIPESTATUS} -ne 0 ]; then
             echo "❌ 内核编译失败，请查看 build.log 定位错误"
             exit 1
