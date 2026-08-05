@@ -11,21 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ==================== 第一步：全局环境初始化（修复版，彻底解决config.env变量加载失败问题） ====================
+      # ==================== 第一步：全局环境初始化 ====================
       - name: 【第一步】加载全局配置（逐行解析+格式清洗）
         id: step1
         run: |
           echo "=== 开始加载 config.env 全局配置 ==="
-          # 强制转换换行符为LF，彻底清除Windows残留的CR字符
           sed -i 's/\r$//' config.env
-          # 逐行读取并校验，写入GITHUB_ENV
           while IFS= read -r line; do
-            # 跳过空行
             [ -z "$line" ] && continue
-            # 跳过#开头的注释行
             [[ "$line" =~ ^# ]] && continue
-            # 校验行符合变量定义格式，写入环境变量
-            if [[ "$line" =~ A-Za-z_][A-Za-z0-9_]*= ]]; then
+            if [[ "$line" =~ [A-Za-z_][A-Za-z0-9_]*= ]]; then
               echo "$line" >> $GITHUB_ENV
               echo "[✓] 已加载配置：$line"
             else
@@ -33,7 +28,6 @@ jobs:
             fi
           done < config.env
           echo "[✓] 全局配置加载完成"
-          # 额外打印config.env原始内容，用于排查隐藏字符问题
           echo "=== config.env 原始内容校验 ==="
           cat -A config.env
 
@@ -42,7 +36,6 @@ jobs:
           echo "=== 第一步校验：环境变量完整性 ==="
           FAIL=0
           for var in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME; do
-            # 直接读取系统已导出的环境变量，避免解析GITHUB_ENV中间文件的兼容性问题
             val="${!var}"
             if [ -z "$val" ]; then
               echo "[✗] 缺失环境变量：${var}"
@@ -224,7 +217,6 @@ jobs:
           else
             LINE_COUNT=$(wc -l < "$CONFIG_FILE")
             echo "[✓] .config 文件存在，共 ${LINE_COUNT} 行"
-            # 确认关键架构配置
             for cfg in "CONFIG_ARM64" "CONFIG_ARCH_SAGIT"; do
               if grep -q ^${cfg}=y "$CONFIG_FILE" 2>/dev/null; then
                 echo "[✓] ${cfg}=y 已确认"
@@ -388,7 +380,7 @@ jobs:
           # ---------- SCTP 协议 ----------
           add_config "CONFIG_IP_SCTP=y"
 
-          # ---------- 透明大页（含 hugetlb cgroup 依赖链） ----------
+          # ---------- 透明大页 ----------
           add_config "CONFIG_HUGETLB_PAGE=y"
           add_config "CONFIG_HUGETLBFS=y"
           add_config "CONFIG_CGROUP_HUGETLB=y"
@@ -662,16 +654,16 @@ jobs:
             if grep -q ^${cfg}=y out/.config; then
               echo "[✓] 已启用 ${cfg}"
             else
-              echo "[⚠️  已丢失] ${cfg} —— 被olddefconfig自动关闭，需检查内核源码依赖"
+              echo "[⚠️ 已丢失] ${cfg} —— 被 olddefconfig 自动关闭，需检查内核源码依赖"
               FAIL_COUNT=$((FAIL_COUNT+1))
             fi
           done
           echo ""
           if [ $FAIL_COUNT -gt 0 ]; then
-            echo "❌ 校验失败：共 ${FAIL_COUNT} 个LXC/Docker必需选项被关闭，编译将终止"
+            echo "❌ 校验失败：共 ${FAIL_COUNT} 个 LXC/Docker 必需选项被关闭，编译将终止"
             exit 1
           else
-            echo "✅ 校验通过：所有LXC/Docker必需选项均已正确开启"
+            echo "✅ 校验通过：所有 LXC/Docker 必需选项均已正确开启"
           fi
 
       - name: 【校验·第十一步】最终确认校验通过
