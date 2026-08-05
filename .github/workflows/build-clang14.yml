@@ -611,8 +611,16 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          # 备份原始文件
+          # 备份
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
+
+          # 探查：查看所有包含 aa_calc 的行
+          echo "=== 探查文件中所有 aa_calc 相关行 ==="
+          grep -n "aa_calc" security/apparmor/crypto.c || echo "(未找到 aa_calc 相关行)"
+
+          # 探查：查看所有包含 char ctx 的行
+          echo "=== 探查文件中所有 'char ctx' 行 ==="
+          grep -n "char ctx" security/apparmor/crypto.c || echo "(未找到 char ctx 行)"
 
           python3 << 'PYEOF'
           import re
@@ -620,17 +628,31 @@ jobs:
           with open('security/apparmor/crypto.c', 'r') as f:
               content = f.read()
 
-          # 定位函数签名起始位置
-          pattern = r'int\s+aa_calc_sha256\s*$[^)]*$\s*\{'
-          match = re.search(pattern, content)
+          # 尝试多种可能的函数签名模式
+          patterns = [
+              r'int\s+aa_calc_sha256\s*$[^)]*$\s*\{',       # 最标准
+              r'int\s+aa_calc_hash\s*$[^)]*$\s*\{',          # 可能简化名
+              r'int\s+aa_calc\w*\s*$[^)]*$\s*\{',            # 通配匹配
+              r'static\s+int\s+aa_calc\w*\s*$[^)]*$\s*\{',   # 带 static 修饰
+          ]
+
+          match = None
+          for p in patterns:
+              m = re.search(p, content)
+              if m:
+                  print(f"[✓] 匹配到函数签名：{m.group(0)}")
+                  match = m
+                  break
+
           if not match:
-              print("[✗] 未找到 aa_calc_sha256 函数定义，终止修复")
+              print("[✗] 所有模式均未匹配，请检查上方探查输出")
+              # 输出文件前 100 行帮助定位
+              print("=== 文件前 100 行 ===")
+              print(content[:3000])
               exit(1)
 
           func_start = match.start()
-          brace_pos = match.end() - 1   # 指向函数体的开括号 '{'
-
-          # 括号匹配，找到函数结束的 '}'
+          # 括号匹配定位函数体结束
           depth = 1
           pos = match.end()
           while pos < len(content) and depth > 0:
@@ -644,7 +666,7 @@ jobs:
               print("[✗] 函数体花括号不匹配，终止修复")
               exit(1)
 
-          # 替换后的新函数（用 kzalloc 替代栈上变长数组）
+          # 替换函数体
           new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
           {
               struct shash_desc *desc;
@@ -671,16 +693,17 @@ jobs:
           with open('security/apparmor/crypto.c', 'w') as f:
               f.write(content)
 
-          print("[✓] 函数替换完成（括号匹配方式）")
+          print("[✓] 函数替换完成")
           PYEOF
 
-          # 校验：确认变长数组语法已消失
+          # 校验
           if grep -q "char ctx\[crypto_shash_descsize" security/apparmor/crypto.c; then
-            echo "[✗] 变长数组行仍然存在，修复失败"
+            echo "[✗] 变长数组行仍然存在，变通修复失败"
             exit 1
           else
-            echo "[✓] AppArmor 变长数组兼容修复完成，适配 Clang14 标准 C 语法"
+            echo "[✓] AppArmor 变长数组兼容修复完成"
           fi
+
 
 
 
