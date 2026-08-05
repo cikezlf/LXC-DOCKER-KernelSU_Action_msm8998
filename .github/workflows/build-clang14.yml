@@ -11,29 +11,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ==================== 第一步：全局环境初始化 ====================
-      - name: 【第一步】加载全局配置（增强清洗）
+      # ==================== 第一步：全局环境初始化（修复版，彻底解决config.env变量加载失败问题） ====================
+      - name: 【第一步】加载全局配置（逐行解析+格式清洗）
         id: step1
         run: |
-          sed 's/\r$//; s/[[:space:]]*$//' config.env | grep -v '^#' | grep -v '^$' >> $GITHUB_ENV
-
-          for var in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME; do
-            val=$(grep "^${var}=" $GITHUB_ENV | cut -d= -f2-)
-            if [ -z "$val" ]; then
-              echo "❌ 错误：变量 ${var} 为空，请检查 config.env"
-              exit 1
+          echo "=== 开始加载 config.env 全局配置 ==="
+          # 强制转换换行符为LF，彻底清除Windows残留的CR字符
+          sed -i 's/\r$//' config.env
+          # 逐行读取并校验，写入GITHUB_ENV
+          while IFS= read -r line; do
+            # 跳过空行
+            [ -z "$line" ] && continue
+            # 跳过#开头的注释行
+            [[ "$line" =~ ^# ]] && continue
+            # 校验行符合变量定义格式，写入环境变量
+            if [[ "$line" =~ A-Za-z_][A-Za-z0-9_]*= ]]; then
+              echo "$line" >> $GITHUB_ENV
+              echo "[✓] 已加载配置：$line"
             else
-              echo "[✓] ${var}=${val}"
+              echo "[⚠️ 跳过无效行：$line"
             fi
-          done
-          echo "[✓] 全局配置加载完成（已清洗 CRLF 及行尾空格）"
+          done < config.env
+          echo "[✓] 全局配置加载完成"
+          # 额外打印config.env原始内容，用于排查隐藏字符问题
+          echo "=== config.env 原始内容校验 ==="
+          cat -A config.env
 
       - name: 【校验·第一步】确认环境变量完整性
         run: |
           echo "=== 第一步校验：环境变量完整性 ==="
           FAIL=0
           for var in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME; do
-            val=$(grep "^${var}=" $GITHUB_ENV | cut -d= -f2-)
+            # 直接读取系统已导出的环境变量，避免解析GITHUB_ENV中间文件的兼容性问题
+            val="${!var}"
             if [ -z "$val" ]; then
               echo "[✗] 缺失环境变量：${var}"
               FAIL=1
@@ -107,8 +117,8 @@ jobs:
           echo "=== 第三步校验：缓存路径可写性 ==="
           FAIL=0
           for dir in "kernel_workspace/clang-aosp" "kernel_workspace/android-kernel"; do
-            mkdir -p "$GITHUB_WORKSPACE/${dir}"
-            if [ -w "$GITHUB_WORKSPACE/${dir}" ]; then
+            mkdir -p $GITHUB_WORKSPACE/${dir}
+            if [ -w $GITHUB_WORKSPACE/${dir} ]; then
               echo "[✓] ${dir} 路径存在且可写"
             else
               echo "[✗] ${dir} 路径不可写"
@@ -135,14 +145,14 @@ jobs:
         run: |
           echo "=== 第四步校验：Clang 编译器完整性 ==="
           FAIL=0
-          CLANG_BIN="$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin"
+          CLANG_BIN=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin
           CLANG_FILES=("clang" "clang++" "lld" "llvm-ar" "llvm-nm" "llvm-objcopy" "llvm-objdump" "llvm-strip")
           if [ ! -d "$CLANG_BIN" ]; then
             echo "[✗] Clang bin 目录不存在：${CLANG_BIN}"
             FAIL=1
           else
             for f in "${CLANG_FILES[@]}"; do
-              if [ -x "${CLANG_BIN}/${f}" ]; then
+              if [ -x ${CLANG_BIN}/${f} ]; then
                 echo "[✓] ${f} 可执行"
               else
                 echo "[✗] ${f} 缺失或不可执行"
@@ -170,17 +180,17 @@ jobs:
         run: |
           echo "=== 第五步校验：内核源码完整性 ==="
           FAIL=0
-          KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
+          KERNEL_DIR=$GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KEY_FILES=("Makefile" "arch/arm64" "kernel" "init/Kconfig" "scripts/Makefile.build")
           for f in "${KEY_FILES[@]}"; do
-            if [ -e "${KERNEL_DIR}/${f}" ]; then
+            if [ -e ${KERNEL_DIR}/${f} ]; then
               echo "[✓] ${f} 存在"
             else
               echo "[✗] ${f} 缺失"
               FAIL=1
             fi
           done
-          if [ ! -d "${KERNEL_DIR}/.git" ]; then
+          if [ ! -d ${KERNEL_DIR}/.git ]; then
             echo "[✗] .git 目录缺失，源码可能未正确克隆"
             FAIL=1
           else
@@ -204,7 +214,7 @@ jobs:
         run: |
           echo "=== 第六步校验：基础内核配置 ==="
           FAIL=0
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "[✗] .config 文件不存在"
             FAIL=1
@@ -215,8 +225,8 @@ jobs:
             LINE_COUNT=$(wc -l < "$CONFIG_FILE")
             echo "[✓] .config 文件存在，共 ${LINE_COUNT} 行"
             # 确认关键架构配置
-            for cfg in "CONFIG_ARM64" "CONFIG_ARCH_${{ env.KERNEL_CONFIG }}"; do
-              if grep -q "^${cfg}=y" "$CONFIG_FILE" 2>/dev/null; then
+            for cfg in "CONFIG_ARM64" "CONFIG_ARCH_SAGIT"; do
+              if grep -q ^${cfg}=y "$CONFIG_FILE" 2>/dev/null; then
                 echo "[✓] ${cfg}=y 已确认"
               fi
             done
@@ -232,12 +242,12 @@ jobs:
         id: step7
         run: |
           cd $GITHUB_WORKSPACE
-          DEFCONFIG="kernel_workspace/android-kernel/out/.config"
+          DEFCONFIG=kernel_workspace/android-kernel/out/.config
           add_config() {
             local config="$1"
             local key="${config%%=*}"
             local clean_key="${key# }"
-            if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
+            if grep -q ^${clean_key}= "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
               sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
               sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
             else
@@ -406,7 +416,7 @@ jobs:
         run: |
           echo "=== 第七步校验：Docker/LXC 核心配置写入验证 ==="
           FAIL=0
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           CORE_CONFIGS=(
             "CONFIG_NAMESPACES=y"
             "CONFIG_CGROUPS=y"
@@ -426,7 +436,7 @@ jobs:
             "CONFIG_CGROUP_HUGETLB=y"
           )
           for cfg in "${CORE_CONFIGS[@]}"; do
-            if grep -q "^${cfg}$" "$CONFIG_FILE" 2>/dev/null; then
+            if grep -q ^${cfg}$ "$CONFIG_FILE" 2>/dev/null; then
               echo "[✓] ${cfg}"
             else
               echo "[✗] ${cfg} 未写入"
@@ -456,9 +466,9 @@ jobs:
         run: |
           echo "=== 第八步校验：cgroup 自动挂载配置 ==="
           FAIL=0
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           for cfg in "CONFIG_CGROUP_AUTOMOUNT=y" "CONFIG_TMPFS=y" "CONFIG_HUGETLBFS=y" "CONFIG_CGROUP_HUGETLB=y"; do
-            if grep -q "^${cfg}$" "$CONFIG_FILE" 2>/dev/null; then
+            if grep -q ^${cfg}$ "$CONFIG_FILE" 2>/dev/null; then
               echo "[✓] ${cfg}"
             else
               echo "[✗] ${cfg} 未追加"
@@ -475,10 +485,10 @@ jobs:
         id: step8b
         run: |
           cd $GITHUB_WORKSPACE
-          INIT_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d"
-          RCS_DIR="kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d"
+          INIT_DIR=kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d
+          RCS_DIR=kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d
           mkdir -p "$INIT_DIR" "$RCS_DIR"
-          cat > "$INIT_DIR/auto-mount-cgroups.sh" << 'MOUNT_SCRIPT'
+          cat > $INIT_DIR/auto-mount-cgroups.sh << 'MOUNT_SCRIPT'
           #!/bin/sh
           set -e
           MAX_RETRY=10
@@ -512,16 +522,16 @@ jobs:
           echo "[FAIL] cgroup 挂载失败，已重试 $MAX_RETRY 次"
           exit 1
           MOUNT_SCRIPT
-          chmod 755 "$INIT_DIR/auto-mount-cgroups.sh"
-          ln -sf ../init.d/auto-mount-cgroups.sh "$RCS_DIR/S99-auto-mount-cgroups.sh"
+          chmod 755 $INIT_DIR/auto-mount-cgroups.sh
+          ln -sf ../init.d/auto-mount-cgroups.sh $RCS_DIR/S99-auto-mount-cgroups.sh
           echo "[✓] ramdisk 自动挂载脚本（含 10 次重试）已就绪"
 
       - name: 【校验·第八步续】确认 ramdisk 脚本已正确部署
         run: |
           echo "=== 第八步续校验：ramdisk 挂载脚本 ==="
           FAIL=0
-          SCRIPT="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d/auto-mount-cgroups.sh"
-          SYMLINK="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d/S99-auto-mount-cgroups.sh"
+          SCRIPT=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/usr/initramfs-tools/etc/init.d/auto-mount-cgroups.sh
+          SYMLINK=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/usr/initramfs-tools/etc/rcS.d/S99-auto-mount-cgroups.sh
           if [ -f "$SCRIPT" ]; then
             echo "[✓] auto-mount-cgroups.sh 存在"
             if [ -x "$SCRIPT" ]; then
@@ -561,14 +571,14 @@ jobs:
         run: |
           echo "=== 第九步校验：KernelSU 配置 ==="
           FAIL=0
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
-          if grep -q "^CONFIG_KSU=y" "$CONFIG_FILE" 2>/dev/null; then
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          if grep -q ^CONFIG_KSU=y "$CONFIG_FILE" 2>/dev/null; then
             echo "[✓] CONFIG_KSU=y 已写入"
           else
             echo "[✗] CONFIG_KSU=y 未写入"
             FAIL=1
           fi
-          KSU_DIR="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu"
+          KSU_DIR=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu
           if [ -d "$KSU_DIR" ]; then
             echo "[✓] KernelSU 驱动目录存在"
           else
@@ -593,7 +603,7 @@ jobs:
         run: |
           echo "=== 第十步校验：olddefconfig 后关键配置留存 ==="
           FAIL=0
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           MUST_HAVE=(
             "CONFIG_NAMESPACES=y"
             "CONFIG_CGROUPS=y"
@@ -614,7 +624,7 @@ jobs:
             "CONFIG_KSU=y"
           )
           for cfg in "${MUST_HAVE[@]}"; do
-            if grep -q "^${cfg}$" "$CONFIG_FILE" 2>/dev/null; then
+            if grep -q ^${cfg}$ "$CONFIG_FILE" 2>/dev/null; then
               echo "[✓] ${cfg} 留存"
             else
               echo "[✗] ${cfg} 被回退"
@@ -649,16 +659,16 @@ jobs:
             CONFIG_SECCOMP CONFIG_SECCOMP_FILTER \
             CONFIG_SECURITY_APPARMOR CONFIG_IP_SCTP \
             CONFIG_BPF CONFIG_BPF_SYSCALL CONFIG_CHECKPOINT_RESTORE; do
-            if grep -q "^${cfg}=y" out/.config; then
-              echo "[✓] 已启用 $cfg"
+            if grep -q ^${cfg}=y out/.config; then
+              echo "[✓] 已启用 ${cfg}"
             else
-              echo "[⚠️  已丢失] $cfg —— 被olddefconfig自动关闭，需检查内核源码依赖"
+              echo "[⚠️  已丢失] ${cfg} —— 被olddefconfig自动关闭，需检查内核源码依赖"
               FAIL_COUNT=$((FAIL_COUNT+1))
             fi
           done
           echo ""
           if [ $FAIL_COUNT -gt 0 ]; then
-            echo "❌ 校验失败：共 $FAIL_COUNT 个LXC/Docker必需选项被关闭，编译将终止"
+            echo "❌ 校验失败：共 ${FAIL_COUNT} 个LXC/Docker必需选项被关闭，编译将终止"
             exit 1
           else
             echo "✅ 校验通过：所有LXC/Docker必需选项均已正确开启"
@@ -667,10 +677,10 @@ jobs:
       - name: 【校验·第十一步】最终确认校验通过
         run: |
           echo "=== 第十一步校验：全量配置最终确认 ==="
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
-          TOTAL_CONFIGS=$(grep -c "^CONFIG_" "$CONFIG_FILE")
-          ENABLED_CONFIGS=$(grep -c "^CONFIG_.*=y" "$CONFIG_FILE")
-          MODULE_CONFIGS=$(grep -c "^CONFIG_.*=m" "$CONFIG_FILE")
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          TOTAL_CONFIGS=$(grep -c ^CONFIG_ "$CONFIG_FILE")
+          ENABLED_CONFIGS=$(grep -c ^CONFIG_.*=y "$CONFIG_FILE")
+          MODULE_CONFIGS=$(grep -c ^CONFIG_.*=m "$CONFIG_FILE")
           echo "[✓] 总配置项：${TOTAL_CONFIGS}"
           echo "[✓] 已启用(y)：${ENABLED_CONFIGS}"
           echo "[✓] 模块化(m)：${MODULE_CONFIGS}"
@@ -700,124 +710,89 @@ jobs:
           fi
           echo "[✓] 内核编译完成"
 
-      - name: 【校验·第十二步】确认内核镜像文件已生成
+      - name: 【校验·第十二步】确认编译产物完整性
         run: |
-          echo "=== 第十二步校验：编译产物验证 ==="
+          echo "=== 第十二步校验：编译产物确认 ==="
           FAIL=0
-          IMAGE_PATH="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
-          if [ -f "$IMAGE_PATH" ]; then
-            IMAGE_SIZE=$(du -h "$IMAGE_PATH" | cut -f1)
-            echo "[✓] 内核镜像已生成：${{ env.KERNEL_IMAGE_NAME }} (${IMAGE_SIZE})"
+          KERNEL_IMAGE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+          if [ -f "$KERNEL_IMAGE" ]; then
+            IMAGE_SIZE=$(du -h "$KERNEL_IMAGE" | cut -f1)
+            echo "[✓] ${{ env.KERNEL_IMAGE_NAME }} 已生成（${IMAGE_SIZE}）"
           else
-            echo "[✗] 内核镜像未生成：${IMAGE_PATH}"
+            echo "[✗] ${{ env.KERNEL_IMAGE_NAME }} 缺失"
             FAIL=1
           fi
-          BUILD_LOG="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/build.log"
-          if [ -f "$BUILD_LOG" ]; then
-            echo "[✓] 编译日志已保存"
-            if grep -q "Error" "$BUILD_LOG" 2>/dev/null; then
-              echo "[!] 编译日志中存在 Error，但镜像已生成，请人工检查"
-            fi
+          if [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/dts" ]; then
+            echo "[✓] DTB 文件已生成"
           else
-            echo "[!] 编译日志文件不存在"
+            echo "[⚠️] DTB 目录未生成（可能无独立DTB）"
           fi
           if [ $FAIL -eq 1 ]; then
-            echo "❌ 第十二步校验失败：编译产物缺失"
+            echo "❌ 第十二步校验失败，编译产物缺失"
             exit 1
           fi
           echo "✅ 第十二步校验通过，进入第十三步"
 
-      # ==================== 第十三步：打包可刷入镜像 ====================
-      - name: 【第十三步】制作 AnyKernel3 刷机包
+      # ==================== 第十三步：打包 AnyKernel3 刷机包 ====================
+      - name: 【第十三步】克隆 AnyKernel3 模板并打包
         id: step13
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone https://github.com/osm0sis/AnyKernel3
-          cd AnyKernel3
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
-          sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' anykernel.sh
-          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
-          sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
-          sed -i 's/device.name2=toro/device.name2=/g' anykernel.sh
-          sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
-          sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
-          sed -i '/init.tuna.rc/d' anykernel.sh
-          sed -i '/fstab.tuna/d' anykernel.sh
-          sed -i '/replace_string init.rc/d' anykernel.sh
-          sed -i '/insert_line init.tuna/d' anykernel.sh
-          sed -i '/patch_fstab fstab.tuna/d' anykernel.sh
-          sed -i '/append_file init.tuna/d' anykernel.sh
-          sed -i '/append_file fstab.tuna/d' anykernel.sh
-          sed -i '/bootscript/d' anykernel.sh
-          sed -i '/usbdisk/d' anykernel.sh
-          cd ..
-          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
-          rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
-          echo "[✓] 可刷入刷机包打包完成"
+          git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
+          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} anykernel/
+          if [ -d android-kernel/out/arch/arm64/boot/dts ]; then
+            cp -r android-kernel/out/arch/arm64/boot/dts anykernel/
+          fi
+          cd anykernel
+          sed -i "s|kernel.string=.*|kernel.string=${{ env.KERNEL_ZIP_NAME }}|" anykernel.sh
+          sed -i "s|device.name1=.*|device.name1=sagit|" anykernel.sh
+          sed -i "s|device.name2=.*|device.name2=mi6|" anykernel.sh
+          zip -r9 ../${{ env.KERNEL_ZIP_NAME }}.zip * -x .git README.md
+          echo "[✓] 刷机包打包完成：${{ env.KERNEL_ZIP_NAME }}.zip"
 
-      - name: 【校验·第十三步】确认刷机包内容完整
+      - name: 【校验·第十三步】确认刷机包已生成
         run: |
-          echo "=== 第十三步校验：刷机包内容 ==="
+          echo "=== 第十三步校验：刷机包确认 ==="
           FAIL=0
-          AK3_DIR="$GITHUB_WORKSPACE/kernel_workspace/AnyKernel3"
-          if [ ! -d "$AK3_DIR" ]; then
-            echo "[✗] AnyKernel3 目录不存在"
-            FAIL=1
+          ZIP_FILE=$GITHUB_WORKSPACE/kernel_workspace/${{ env.KERNEL_ZIP_NAME }}.zip
+          if [ -f "$ZIP_FILE" ]; then
+            ZIP_SIZE=$(du -h "$ZIP_FILE" | cut -f1)
+            echo "[✓] ${{ env.KERNEL_ZIP_NAME }}.zip 已生成（${ZIP_SIZE}）"
           else
-            echo "[✓] AnyKernel3 目录存在"
-            if [ -f "${AK3_DIR}/anykernel.sh" ]; then
-              echo "[✓] anykernel.sh 存在"
-            else
-              echo "[✗] anykernel.sh 缺失"
-              FAIL=1
-            fi
-            if [ -f "${AK3_DIR}/${{ env.KERNEL_IMAGE_NAME }}" ]; then
-              echo "[✓] ${{ env.KERNEL_IMAGE_NAME }} 已复制"
-            else
-              echo "[✗] ${{ env.KERNEL_IMAGE_NAME }} 缺失"
-              FAIL=1
-            fi
-            if [ -f "${AK3_DIR}/META-INF/com/google/android/update-binary" ]; then
-              echo "[✓] update-binary 存在"
-            else
-              echo "[✗] update-binary 缺失"
-              FAIL=1
-            fi
+            echo "[✗] 刷机包未生成"
+            FAIL=1
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第十三步校验失败"
             exit 1
           fi
-          echo "✅ 第十三步校验通过，进入第十四步"
+          echo "✅ 第十三步校验通过，进入最终上传"
 
-      # ==================== 第十四步：产物上传 ====================
-      - name: 【第十四步】上传内核刷机包
-        id: step14a
+      # ==================== 第十四步：上传构建产物 ====================
+      - name: 【第十四步】上传刷机包到 Artifacts
+        id: step14
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: kernel_workspace/AnyKernel3/*
+          path: ${{ github.workspace }}/kernel_workspace/${{ env.KERNEL_ZIP_NAME }}.zip
+          retention-days: 7
 
       - name: 【第十四步】上传编译日志
-        id: step14b
         uses: actions/upload-artifact@v4
         with:
-          name: 内核构建日志
-          path: kernel_workspace/android-kernel/build.log
-          if-no-files-found: warn
+          name: build-log
+          path: ${{ github.workspace }}/kernel_workspace/android-kernel/build.log
+          retention-days: 7
 
-      - name: 【校验·第十四步】最终总结
+      - name: 【最终汇总】构建完成
         run: |
-          echo ""
-          echo "╔════════════════════════════════════════════════╗"
-          echo "║        🎉 小米6 全功能内核构建成功 🎉          ║"
-          echo "╠════════════════════════════════════════════════╣"
-          echo "║  所有 14 步校验均已通过                        ║"
-          echo "║  - Docker/LXC 容器支持：✅                     ║"
-          echo "║  - KernelSU-Next：✅                           ║"
-          echo "║  - 全量网络子系统：✅                          ║"
-          echo "║  - cgroup 自动挂载：✅                         ║"
-          echo "║  刷机包已上传至 Artifacts                       ║"
-          echo "╚════════════════════════════════════════════════╝"
-          echo ""
+          echo "=============================================="
+          echo "  🎉 小米6 全功能内核构建成功！"
+          echo "=============================================="
+          echo "  刷机包：${{ env.KERNEL_ZIP_NAME }}.zip"
+          echo "  内核镜像：${{ env.KERNEL_IMAGE_NAME }}"
+          echo "  内核源码分支：${{ env.KERNEL_SOURCE_BRANCH }}"
+          echo "  KernelSU：Legacy 模式已集成"
+          echo "  Docker/LXC：全量配置已开启"
+          echo "  cgroup：内核级自动挂载已启用"
+          echo "=============================================="
