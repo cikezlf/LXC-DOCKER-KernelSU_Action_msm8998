@@ -40,14 +40,14 @@ jobs:
       - name: 【缓存】Clang14工具链
         uses: actions/cache@v4
         with:
-          path: $\{\{ github.workspace \}\}/kernel_workspace/clang-aosp
+          path: ${{ github.workspace }}/kernel_workspace/clang-aosp
           key: clang-aosp-android13-r450784d
 
       - name: 【缓存】内核源码
         uses: actions/cache@v4
         with:
-          path: $\{\{ github.workspace \}\}/kernel_workspace/android-kernel
-          key: kernel-src-$\{\{ env.KERNEL_SOURCE_BRANCH \}\}
+          path: ${{ github.workspace }}/kernel_workspace/android-kernel
+          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}
 
       # ==================== 第三步：拉取编译资源 ====================
       - name: 【拉取】AOSP Clang14编译器
@@ -62,7 +62,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           if [ ! -d android-kernel ]; then
-            git clone "$\{\{ env.KERNEL_SOURCE \}\}" -b "$\{\{ env.KERNEL_SOURCE_BRANCH \}\}" android-kernel --depth=1
+            git clone "${{ env.KERNEL_SOURCE }}" -b "${{ env.KERNEL_SOURCE_BRANCH }}" android-kernel --depth=1
           fi
           echo "[✓] 内核源码就绪"
 
@@ -70,7 +70,7 @@ jobs:
       - name: 【编译】生成基础内核默认配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          make O=out ARCH=arm64 $\{\{ env.KERNEL_CONFIG \}\}
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
           echo "[✓] 基础内核配置生成完成"
 
       # ==================== 第五步：Docker/LXC 全量配置写入 ====================
@@ -80,11 +80,11 @@ jobs:
           DEFCONFIG="kernel_workspace/android-kernel/out/.config"
           add_config() {
             local config="$1"
-            local key="$\{config\%\%=*\}"
-            local clean_key="$\{key# \}"
-            if grep -q "^$\{clean_key\}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# $\{clean_key\} is not set" "$DEFCONFIG" 2>/dev/null; then
-              sed -i "s|^$\{clean_key\}=.*|$\{config\}|" "$DEFCONFIG" 2>/dev/null
-              sed -i "s|^# $\{clean_key\} is not set|$\{config\}|" "$DEFCONFIG" 2>/dev/null
+            local key="${config%%=*}"
+            local clean_key="${key# }"
+            if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
+              sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
+              sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
             else
               echo "$config" >> "$DEFCONFIG"
             fi
@@ -337,7 +337,7 @@ jobs:
             CONFIG_SECCOMP CONFIG_SECCOMP_FILTER \
             CONFIG_SECURITY_APPARMOR CONFIG_IP_SCTP \
             CONFIG_BPF CONFIG_BPF_SYSCALL CONFIG_CHECKPOINT_RESTORE; do
-            if grep -q "^$\{cfg\}=y" out/.config; then
+            if grep -q "^${cfg}=y" out/.config; then
               echo "[✓] 已启用 $cfg"
             else
               echo "[⚠️  已丢失] $cfg —— 被olddefconfig自动关闭，需检查内核源码依赖"
@@ -359,7 +359,7 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
           export KBUILD_BUILD_HOST=HyperPower
           export KBUILD_BUILD_USER=MI6-FullFunction
-          if [ "$\{\{ env.LLVM_CONFIG \}\}" = "y" ]; then
+          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
               CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
@@ -399,7 +399,7 @@ jobs:
           sed -i '/bootscript/d' anykernel.sh
           sed -i '/usbdisk/d' anykernel.sh
           cd ..
-          cp android-kernel/out/arch/arm64/boot/$\{\{ env.KERNEL_IMAGE_NAME \}\} AnyKernel3/
+          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
           rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
           echo "[✓] 可刷入刷机包打包完成"
 
@@ -407,7 +407,7 @@ jobs:
       - name: 【上传】内核刷机包
         uses: actions/upload-artifact@v4
         with:
-          name: $\{\{ env.KERNEL_ZIP_NAME \}\}
+          name: ${{ env.KERNEL_ZIP_NAME }}
           path: kernel_workspace/AnyKernel3/*
 
       - name: 【上传】编译日志
