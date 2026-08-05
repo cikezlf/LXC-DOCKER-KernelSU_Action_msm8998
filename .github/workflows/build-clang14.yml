@@ -28,14 +28,14 @@ jobs:
       - name: 【缓存】Clang14工具链
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/kernel_workspace/clang-aosp
+          path: $\{\{ github.workspace \}\}/kernel_workspace/clang-aosp
           key: clang-aosp-android13-r450784d
 
       - name: 【缓存】内核源码
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/kernel_workspace/android-kernel
-          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}
+          path: $\{\{ github.workspace \}\}/kernel_workspace/android-kernel
+          key: kernel-src-$\{\{ env.KERNEL_SOURCE_BRANCH \}\}
 
       # ==================== 第三步：拉取编译资源 ====================
       - name: 【拉取】AOSP Clang14编译器
@@ -50,30 +50,29 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           if [ ! -d android-kernel ]; then
-            git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+            git clone $\{\{ env.KERNEL_SOURCE \}\} -b $\{\{ env.KERNEL_SOURCE_BRANCH \}\} android-kernel --depth=1
           fi
           echo "[✓] 内核源码就绪"
 
-      # ==================== 第四步：先生成基础内核配置，修复逻辑错位覆盖问题 ====================
+      # ==================== 第四步：生成基础内核配置 ====================
       - name: 【编译】生成基础内核默认配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+          make O=out ARCH=arm64 $\{\{ env.KERNEL_CONFIG \}\}
           echo "[✓] 基础内核配置生成完成"
 
-      # ==================== 第五步：DroidSpaces + Docker/LXC 全量配置（直接操作编译生效的 out/.config，修复路径错误和转义错误） ====================
+      # ==================== 第五步：Docker/LXC 全量配置写入 ====================
       - name: 【全量配置】写入 DroidSpaces 与 Docker/LXC 内核配置
         run: |
           cd $GITHUB_WORKSPACE
           DEFCONFIG="kernel_workspace/android-kernel/out/.config"
           add_config() {
             local config="$1"
-            local key="${config%%=*}"
-            # 修复：移除多余的反斜杠转义符，确保注释类配置项可正确匹配
-            local clean_key="${key# }"
-            if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
-              sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
-              sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
+            local key="$\{config\%\%=*\}"
+            local clean_key="$\{key# \}"
+            if grep -q "^$\{clean_key\}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# $\{clean_key\} is not set" "$DEFCONFIG" 2>/dev/null; then
+              sed -i "s|^$\{clean_key\}=.*|$\{config\}|" "$DEFCONFIG" 2>/dev/null
+              sed -i "s|^# $\{clean_key\} is not set|$\{config\}|" "$DEFCONFIG" 2>/dev/null
             else
               echo "$config" >> "$DEFCONFIG"
             fi
@@ -125,10 +124,10 @@ jobs:
           add_config "CONFIG_FW_LOADER_USER_HELPER=y"
           add_config "CONFIG_FW_LOADER_COMPRESS=y"
 
-          # ---------- Overlay 文件系统（容器 volatile 模式必需） ----------
+          # ---------- Overlay 文件系统 ----------
           add_config "CONFIG_OVERLAY_FS=y"
 
-          # ---------- Tmpfs 扩展属性与 POSIX ACL（NixOS 兼容） ----------
+          # ---------- Tmpfs 扩展属性 ----------
           add_config "CONFIG_TMPFS_XATTR=y"
           add_config "CONFIG_TMPFS_POSIX_ACL=y"
 
@@ -198,7 +197,7 @@ jobs:
           add_config "CONFIG_IP_ADVANCED_ROUTER=y"
           add_config "CONFIG_IP_MULTIPLE_TABLES=y"
 
-          # ---------- 传统兼容层（旧版内核网络支持） ----------
+          # ---------- 传统兼容层 ----------
           add_config "CONFIG_NF_CONNTRACK_IPV4=y"
           add_config "CONFIG_NF_NAT_IPV4=y"
           add_config "CONFIG_IP_NF_NAT=y"
@@ -221,7 +220,7 @@ jobs:
           add_config "CONFIG_FHANDLE=y"
           add_config "CONFIG_CHECKPOINT_RESTORE=y"
 
-          # ---------- BPF 扩展伯克利包过滤器 ----------
+          # ---------- BPF ----------
           add_config "CONFIG_BPF=y"
           add_config "CONFIG_BPF_SYSCALL=y"
           add_config "CONFIG_BPF_JIT=y"
@@ -229,7 +228,7 @@ jobs:
           # ---------- 内核模块支持 ----------
           add_config "CONFIG_MODULES=y"
 
-          # ---------- 关闭 Android 网络限制（修复 Docker 网络异常） ----------
+          # ---------- 关闭 Android 网络限制 ----------
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
           echo "[✓] DroidSpaces 与 Docker/LXC 全量配置已写入最终编译配置文件"
@@ -298,20 +297,57 @@ jobs:
           grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
           echo "[✓] KernelSU-Next Legacy 驱动部署完成"
 
-      # ==================== 第八步：内核编译 ====================
+      # ==================== 第八步：内核配置同步 ====================
       - name: 【编译】最终同步内核配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] 最终内核配置同步完成"
 
+      # ==================== 第九步：LXC/Docker 配置完整性校验（新增） ====================
+      - name: 【校验】LXC/Docker内核配置完整性
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          echo "=== LXC/Docker 内核配置校验结果 ==="
+          FAIL_COUNT=0
+          for cfg in \
+            CONFIG_NAMESPACES CONFIG_PID_NS CONFIG_UTS_NS CONFIG_IPC_NS \
+            CONFIG_USER_NS CONFIG_NET_NS CONFIG_CGROUPS CONFIG_MEMCG \
+            CONFIG_BLK_CGROUP CONFIG_CGROUP_PIDS CONFIG_CGROUP_HUGETLB \
+            CONFIG_NET_CLS_CGROUP CONFIG_CGROUP_NET_PRIO \
+            CONFIG_BLK_DEV_THROTTLING CONFIG_OVERLAY_FS \
+            CONFIG_VETH CONFIG_BRIDGE CONFIG_BRIDGE_NETFILTER \
+            CONFIG_BRIDGE_VLAN_FILTERING CONFIG_MACVLAN CONFIG_VXLAN \
+            CONFIG_NETFILTER CONFIG_NF_CONNTRACK CONFIG_NF_NAT \
+            CONFIG_IP_NF_IPTABLES CONFIG_IP_NF_TARGET_MASQUERADE \
+            CONFIG_NETFILTER_XT_MATCH_IPVS CONFIG_IP_VS \
+            CONFIG_IP_VS_NFCT CONFIG_IP_VS_PROTO_UDP \
+            CONFIG_SECCOMP CONFIG_SECCOMP_FILTER \
+            CONFIG_SECURITY_APPARMOR CONFIG_IP_SCTP \
+            CONFIG_BPF CONFIG_BPF_SYSCALL CONFIG_CHECKPOINT_RESTORE; do
+            if grep -q "^$\{cfg\}=y" out/.config; then
+              echo "[✓] 已启用 $cfg"
+            else
+              echo "[⚠️  已丢失] $cfg —— 被olddefconfig自动关闭，需检查内核源码依赖"
+              FAIL_COUNT=$((FAIL_COUNT+1))
+            fi
+          done
+          echo ""
+          if [ $FAIL_COUNT -gt 0 ]; then
+            echo "❌ 校验失败：共 $FAIL_COUNT 个LXC/Docker必需选项被关闭，编译将终止"
+            exit 1
+          else
+            echo "✅ 校验通过：所有LXC/Docker必需选项均已正确开启"
+          fi
+
+      # ==================== 第十步：内核编译 ====================
       - name: 【编译】正式编译内核
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
           export KBUILD_BUILD_HOST=HyperPower
           export KBUILD_BUILD_USER=MI6-FullFunction
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
+          if [ "$\{\{ env.LLVM_CONFIG \}\}" = "y" ]; then
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
               CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
@@ -327,7 +363,7 @@ jobs:
           fi
           echo "[✓] 内核编译完成"
 
-      # ==================== 第九步：打包可刷入镜像 ====================
+      # ==================== 第十一步：打包可刷入镜像 ====================
       - name: 【打包】制作 AnyKernel3 刷机包
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
@@ -351,15 +387,15 @@ jobs:
           sed -i '/bootscript/d' anykernel.sh
           sed -i '/usbdisk/d' anykernel.sh
           cd ..
-          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
+          cp android-kernel/out/arch/arm64/boot/$\{\{ env.KERNEL_IMAGE_NAME \}\} AnyKernel3/
           rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
           echo "[✓] 可刷入刷机包打包完成"
 
-      # ==================== 第十步：产物上传 ====================
+      # ==================== 第十二步：产物上传 ====================
       - name: 【上传】内核刷机包
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.KERNEL_ZIP_NAME }}
+          name: $\{\{ env.KERNEL_ZIP_NAME \}\}
           path: kernel_workspace/AnyKernel3/*
 
       - name: 【上传】编译日志
