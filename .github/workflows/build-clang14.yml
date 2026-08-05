@@ -69,7 +69,7 @@ jobs:
         run: |
           echo "=== 第二步校验：编译依赖完整性 ==="
           FAIL=0
-          DEPS=("git" "make" "bc" "bison" "ccache" "openssl" "zip" "kmod" "cpio" "flex" "curl" "wget" "dtc" "python3" "aarch64-linux-gnu-gcc" "arm-linux-gnueabi-gcc")
+          DEPS=("git" "make" "bc" "bison" "ccache" "openssl" "zip" "kmod" "cpio" "flex" "curl" "wget" "dtc" "python3")
           for dep in "${DEPS[@]}"; do
             if command -v "$dep" &> /dev/null; then
               echo "[✓] ${dep} 已安装"
@@ -78,6 +78,19 @@ jobs:
               FAIL=1
             fi
           done
+          # 条件检查：LLVM_CONFIG=y 时跳过 GCC 交叉编译器
+          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
+            echo "[i] LLVM_CONFIG=y，使用 Clang 编译，跳过 GCC 交叉编译器检查"
+          else
+            for gcc in "aarch64-linux-gnu-gcc" "arm-linux-gnueabi-gcc"; do
+              if command -v "$gcc" &> /dev/null; then
+                echo "[✓] ${gcc} 已安装"
+              else
+                echo "[✗] ${gcc} 未安装"
+                FAIL=1
+              fi
+            done
+          fi
           if [ ! -d "$GITHUB_WORKSPACE/kernel_workspace" ]; then
             echo "[✗] kernel_workspace 目录未创建"
             FAIL=1
@@ -89,6 +102,7 @@ jobs:
             exit 1
           fi
           echo "✅ 第二步校验通过，进入第三步"
+
 
       # ==================== 第三步：编译资源缓存 ====================
       - name: 【第三步】设置 Clang14 工具链缓存
