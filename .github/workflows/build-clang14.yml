@@ -610,39 +610,49 @@ jobs:
         id: clang-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          
+          # 备份
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          python3 -c "
-import re
-with open('security/apparmor/crypto.c', 'r') as f:
-    content = f.read()
-new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
-{
-    struct shash_desc *desc;
-    char *ctx;
-    int err;
-    ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
-    if (!ctx)
-        return -ENOMEM;
-    desc = (struct shash_desc *)ctx;
-    desc->tfm = apparmor_tfm;
-    err = crypto_shash_init(desc);
-    if (err)
-        goto free_ctx;
-    err = crypto_shash_update(desc, data, len);
-    if (err)
-        goto free_ctx;
-    err = crypto_shash_final(desc, hash);
-free_ctx:
-    kfree(ctx);
-    return err;
-}'''
-content = re.sub(r'int aa_calc_sha256.*?\n}', new_func, content, flags=re.DOTALL)
-with open('security/apparmor/crypto.c', 'w') as f:
-    f.write(content)
-"
-          echo '=== 补丁修改结果校验 ==='
-          diff security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          echo '[✓] AppArmor crypto.c 已完全适配 Clang14 标准C语法'
+          
+          # 用 heredoc 传入 Python 代码
+          python3 << 'PYEOF'
+          import re
+          with open('security/apparmor/crypto.c', 'r') as f:
+              content = f.read()
+          new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
+          {
+              struct shash_desc *desc;
+              char *ctx;
+              int err;
+              ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
+              if (!ctx)
+                  return -ENOMEM;
+              desc = (struct shash_desc *)ctx;
+              desc->tfm = apparmor_tfm;
+              err = crypto_shash_init(desc);
+              if (err)
+                  goto free_ctx;
+              err = crypto_shash_update(desc, data, len);
+              if (err)
+                  goto free_ctx;
+              err = crypto_shash_final(desc, hash);
+          free_ctx:
+              kfree(ctx);
+              return err;
+          }'''
+          content = re.sub(r'int aa_calc_sha256.*?\n}', new_func, content, flags=re.DOTALL)
+          with open('security/apparmor/crypto.c', 'w') as f:
+              f.write(content)
+          PYEOF
+          
+          # 校验修复结果
+          if grep -q "char ctx\[crypto_shash_descsize" security/apparmor/crypto.c; then
+            echo "[✗] 变长数组行仍然存在，修复失败"
+            exit 1
+          else
+            echo "[✓] AppArmor Clang 兼容修复完成"
+          fi
+
 
       - name: 【校验·第十步】确认 olddefconfig 后关键配置未被回退
         run: |
