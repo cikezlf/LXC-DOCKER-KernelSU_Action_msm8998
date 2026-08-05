@@ -605,6 +605,28 @@ jobs:
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] 最终内核配置同步完成"
 
+      # ==================== 修复步骤：兼容Clang修复AppArmor变长数组 ====================
+      - name: 【修复Clang兼容】处理AppArmor crypto.c变长数组编译错误
+        id: clang-fix
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          
+          # 备份原始文件
+          cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
+          
+          # 将第37行的栈上变长数组替换为动态内存分配
+          sed -i '/char ctx$crypto_shash_descsize(apparmor_tfm)$;/c\
+          \tstruct shash_desc *ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);\
+          \tif (!ctx) return -ENOMEM;' security/apparmor/crypto.c
+          
+          # 在函数所有return返回点之前自动插入kfree释放逻辑
+          sed -i '/:space:]]*return /i\ \tif (ctx) kfree(ctx);' security/apparmor/crypto.c
+          
+          # 校验修改结果
+          echo "=== 补丁修改内容确认 ==="
+          diff security/apparmor/crypto.c security/apparmor/crypto.c.bak
+          echo "[✓] AppArmor变长数组兼容修复完成，适配Clang14标准C语法"
+
       - name: 【校验·第十步】确认 olddefconfig 后关键配置未被回退
         run: |
           echo "=== 第十步校验：olddefconfig 后关键配置留存 ==="
@@ -699,10 +721,9 @@ jobs:
           echo "[✓] 总配置项：${TOTAL_CONFIGS}"
           echo "[✓] 已启用(y)：${ENABLED_CONFIGS}"
           echo "[✓] 模块化(m)：${MODULE_CONFIGS}"
-          echo "✅ 第十一步校验通过，进入第十二步（编译）"
+          echo "✅ 第十一步校验通过，进入第十二步（正式编译内核）"
 
-
-      # ==================== 第十二步：内核编译 ====================
+      # ==================== 第十二步：正式编译内核 ====================
       - name: 【第十二步】正式编译内核
         id: step12
         run: |
@@ -711,7 +732,7 @@ jobs:
           export KBUILD_BUILD_HOST=HyperPower
           export KBUILD_BUILD_USER=MI6-FullFunction
       
-          set -o pipefail  # ← 关键：让管道保留 make 的退出码
+          set -o pipefail
       
           if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
@@ -728,14 +749,12 @@ jobs:
               KCFLAGS="-Wno-error" 2>&1 | tee build.log
           fi
       
-          # 检查 make 返回值
           if [ ${PIPESTATUS} -ne 0 ]; then
             echo "❌ 内核编译失败，请查看 build.log 定位错误"
             exit 1
           fi
       
           echo "[✓] 内核编译完成"
-
 
       - name: 【校验·第十二步】确认编译产物完整性
         run: |
