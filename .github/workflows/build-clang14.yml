@@ -610,15 +610,41 @@ jobs:
         id: clang-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          
-          # 备份
+
+          # 备份原始文件
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          
-          # 用 heredoc 传入 Python 代码
+
           python3 << 'PYEOF'
           import re
+
           with open('security/apparmor/crypto.c', 'r') as f:
               content = f.read()
+
+          # 定位函数签名起始位置
+          pattern = r'int\s+aa_calc_sha256\s*$[^)]*$\s*\{'
+          match = re.search(pattern, content)
+          if not match:
+              print("[✗] 未找到 aa_calc_sha256 函数定义，终止修复")
+              exit(1)
+
+          func_start = match.start()
+          brace_pos = match.end() - 1   # 指向函数体的开括号 '{'
+
+          # 括号匹配，找到函数结束的 '}'
+          depth = 1
+          pos = match.end()
+          while pos < len(content) and depth > 0:
+              if content[pos] == '{':
+                  depth += 1
+              elif content[pos] == '}':
+                  depth -= 1
+              pos += 1
+
+          if depth != 0:
+              print("[✗] 函数体花括号不匹配，终止修复")
+              exit(1)
+
+          # 替换后的新函数（用 kzalloc 替代栈上变长数组）
           new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
           {
               struct shash_desc *desc;
@@ -640,18 +666,22 @@ jobs:
               kfree(ctx);
               return err;
           }'''
-          content = re.sub(r'int aa_calc_sha256.*?\n}', new_func, content, flags=re.DOTALL)
+
+          content = content[:func_start] + new_func + content[pos:]
           with open('security/apparmor/crypto.c', 'w') as f:
               f.write(content)
+
+          print("[✓] 函数替换完成（括号匹配方式）")
           PYEOF
-          
-          # 校验修复结果
+
+          # 校验：确认变长数组语法已消失
           if grep -q "char ctx\[crypto_shash_descsize" security/apparmor/crypto.c; then
             echo "[✗] 变长数组行仍然存在，修复失败"
             exit 1
           else
-            echo "[✓] AppArmor Clang 兼容修复完成"
+            echo "[✓] AppArmor 变长数组兼容修复完成，适配 Clang14 标准 C 语法"
           fi
+
 
 
       - name: 【校验·第十步】确认 olddefconfig 后关键配置未被回退
