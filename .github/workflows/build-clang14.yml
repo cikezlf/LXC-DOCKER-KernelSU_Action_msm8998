@@ -14,10 +14,8 @@ jobs:
       # ==================== 第一步：全局环境初始化 ====================
       - name: 【初始化】加载全局配置（增强清洗）
         run: |
-          # 先清洗 CRLF 和行尾空格，再写入 GITHUB_ENV
           sed 's/\r$//; s/[[:space:]]*$//' config.env | grep -v '^#' | grep -v '^$' >> $GITHUB_ENV
 
-          # 校验关键变量是否为空
           for var in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME; do
             val=$(grep "^${var}=" $GITHUB_ENV | cut -d= -f2-)
             if [ -z "$val" ]; then
@@ -223,8 +221,10 @@ jobs:
           # ---------- SCTP 协议 ----------
           add_config "CONFIG_IP_SCTP=y"
 
-          # ---------- 透明大页 ----------
+          # ---------- 透明大页（含 hugetlb cgroup 依赖链） ----------
           add_config "CONFIG_HUGETLB_PAGE=y"
+          add_config "CONFIG_HUGETLBFS=y"
+          add_config "CONFIG_CGROUP_HUGETLB=y"
 
           # ---------- 安全模块 ----------
           add_config "CONFIG_SECURITY=y"
@@ -252,6 +252,8 @@ jobs:
           cat >> out/.config << 'EOF'
           CONFIG_CGROUP_AUTOMOUNT=y
           CONFIG_TMPFS=y
+          CONFIG_HUGETLBFS=y
+          CONFIG_CGROUP_HUGETLB=y
           EOF
           echo "[✓] 内核原生自动挂载开关已开启"
 
