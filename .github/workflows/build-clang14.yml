@@ -710,6 +710,9 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
           export KBUILD_BUILD_HOST=HyperPower
           export KBUILD_BUILD_USER=MI6-FullFunction
+      
+          set -o pipefail  # ← 关键：让管道保留 make 的退出码
+      
           if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
               CLANG_TRIPLE="aarch64-linux-gnu-" \
@@ -724,7 +727,15 @@ jobs:
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
               KCFLAGS="-Wno-error" 2>&1 | tee build.log
           fi
+      
+          # 检查 make 返回值
+          if [ ${PIPESTATUS} -ne 0 ]; then
+            echo "❌ 内核编译失败，请查看 build.log 定位错误"
+            exit 1
+          fi
+      
           echo "[✓] 内核编译完成"
+
 
       - name: 【校验·第十二步】确认编译产物完整性
         run: |
