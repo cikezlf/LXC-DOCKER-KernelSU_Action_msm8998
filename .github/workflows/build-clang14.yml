@@ -683,14 +683,24 @@ jobs:
       - name: 【校验·第十一步】最终确认校验通过
         run: |
           echo "=== 第十一步校验：全量配置最终确认 ==="
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          TOTAL_CONFIGS=$(grep -c ^CONFIG_ "$CONFIG_FILE")
-          ENABLED_CONFIGS=$(grep -c ^CONFIG_.*=y "$CONFIG_FILE")
-          MODULE_CONFIGS=$(grep -c ^CONFIG_.*=m "$CONFIG_FILE")
+          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          
+          # 先检查文件是否存在
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "[✗] .config 文件不存在：${CONFIG_FILE}"
+            exit 1
+          fi
+          
+          # grep 添加 || true 防止非零返回值触发 set -e 退出
+          TOTAL_CONFIGS=$(grep -c '^CONFIG_' "$CONFIG_FILE" || true)
+          ENABLED_CONFIGS=$(grep -c '^CONFIG_.*=y' "$CONFIG_FILE" || true)
+          MODULE_CONFIGS=$(grep -c '^CONFIG_.*=m' "$CONFIG_FILE" || true)
+          
           echo "[✓] 总配置项：${TOTAL_CONFIGS}"
           echo "[✓] 已启用(y)：${ENABLED_CONFIGS}"
           echo "[✓] 模块化(m)：${MODULE_CONFIGS}"
           echo "✅ 第十一步校验通过，进入第十二步（编译）"
+
 
       # ==================== 第十二步：内核编译 ====================
       - name: 【第十二步】正式编译内核
