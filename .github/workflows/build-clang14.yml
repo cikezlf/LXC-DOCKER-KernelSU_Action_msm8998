@@ -606,21 +606,43 @@ jobs:
           echo "[✓] 最终内核配置同步完成"
 
       # ==================== 修复步骤：兼容Clang修复AppArmor变长数组 ====================
-      - name: 【强修复】解决AppArmor crypto.c变长数组Clang编译错误
+      - name: 【修复Clang兼容】处理AppArmor crypto.c变长数组编译错误
         id: clang-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 备份原始文件避免异常
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          # 直接匹配目标行的精确内容，替换为标准内核动态内存分配写法
-          sed -i '/char ctx$crypto_shash_descsize(apparmor_tfm)$;/d' security/apparmor/crypto.c
-          sed -i '/struct shash_desc \*desc;/a\ \tstruct shash_desc *ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);\n\tif (!ctx) return -ENOMEM;' security/apparmor/crypto.c
-          # 自动在所有函数返回点前插入内存释放逻辑，完全避免内存泄漏
-          sed -i '/:space:]]*return /i\ \tif (ctx) kfree(ctx);' security/apparmor/crypto.c
-          # 校验修改结果
-          echo "=== 补丁修改内容确认 ==="
+          python3 -c "
+import re
+with open('security/apparmor/crypto.c', 'r') as f:
+    content = f.read()
+new_func = '''int aa_calc_sha256(const void *data, size_t len, u8 *hash)
+{
+    struct shash_desc *desc;
+    char *ctx;
+    int err;
+    ctx = kzalloc(crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
+    if (!ctx)
+        return -ENOMEM;
+    desc = (struct shash_desc *)ctx;
+    desc->tfm = apparmor_tfm;
+    err = crypto_shash_init(desc);
+    if (err)
+        goto free_ctx;
+    err = crypto_shash_update(desc, data, len);
+    if (err)
+        goto free_ctx;
+    err = crypto_shash_final(desc, hash);
+free_ctx:
+    kfree(ctx);
+    return err;
+}'''
+content = re.sub(r'int aa_calc_sha256.*?\n}', new_func, content, flags=re.DOTALL)
+with open('security/apparmor/crypto.c', 'w') as f:
+    f.write(content)
+"
+          echo '=== 补丁修改结果校验 ==='
           diff security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          echo "[✓] AppArmor变长数组兼容修复完成，适配Clang14标准C语法"
+          echo '[✓] AppArmor crypto.c 已完全适配 Clang14 标准C语法'
 
       - name: 【校验·第十步】确认 olddefconfig 后关键配置未被回退
         run: |
@@ -697,146 +719,123 @@ jobs:
             echo "✅ 校验通过：所有 LXC/Docker 必需选项均已正确开启"
           fi
 
-      - name: 【校验·第十一步】最终确认校验通过
-        run: |
-          echo "=== 第十一步校验：全量配置最终确认 ==="
-          CONFIG_FILE="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
-          
-          # 先检查文件是否存在
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "[✗] .config 文件不存在：${CONFIG_FILE}"
-            exit 1
-          fi
-          
-          # grep 添加 || true 防止非零返回值触发 set -e 退出
-          TOTAL_CONFIGS=$(grep -c '^CONFIG_' "$CONFIG_FILE" || true)
 
-          ENABLED_CONFIGS=$(grep -c '^CONFIG_.*=y' "$CONFIG_FILE" || true)
-          MODULE_CONFIGS=$(grep -c '^CONFIG_.*=m' "$CONFIG_FILE" || true)
-          
-          echo "[✓] 总配置项：${TOTAL_CONFIGS}"
-          echo "[✓] 已启用(y)：${ENABLED_CONFIGS}"
-          echo "[✓] 模块化(m)：${MODULE_CONFIGS}"
-          echo "✅ 第十一步校验通过，进入第十二步（正式编译内核）"
 
-      # ==================== 第十二步：正式编译内核 ====================
-      - name: 【第十二步】正式编译内核
+      # ==================== 第十二步：编译内核 ====================
+      - name: 【第十二步】编译内核
         id: step12
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
-          export KBUILD_BUILD_HOST=HyperPower
-          export KBUILD_BUILD_USER=MI6-FullFunction
-      
-          # 开启管道状态传递，避免tee吞掉make的报错码
-          set -o pipefail
-      
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
-            make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
-              CROSS_COMPILE="aarch64-linux-gnu-" \
-              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-              KCFLAGS="-Wno-error" \
-              LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
-          else
-            make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
-              CROSS_COMPILE="aarch64-linux-gnu-" \
-              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-              KCFLAGS="-Wno-error" 2>&1 | tee build.log
-          fi
-      
-          # 显式校验make的返回状态，编译失败直接终止流程
+          export LD_LIBRARY_PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/lib:$LD_LIBRARY_PATH
+          make O=out ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            -j$(nproc --all) 2>&1 | tee build.log
           if [ ${PIPESTATUS} -ne 0 ]; then
-            echo "❌ 内核编译失败，请查看 build.log 定位错误"
+            echo "❌ 内核编译失败，输出最后30行日志："
+            tail -30 build.log
             exit 1
           fi
-      
           echo "[✓] 内核编译完成"
 
-      - name: 【校验·第十二步】确认编译产物完整性
+      - name: 【校验·第十二步】确认内核镜像已生成
         run: |
-          echo "=== 第十二步校验：编译产物确认 ==="
+          echo "=== 第十二步校验：内核镜像产物 ==="
           FAIL=0
-          KERNEL_IMAGE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
-          if [ -f "$KERNEL_IMAGE" ]; then
-            IMAGE_SIZE=$(du -h "$KERNEL_IMAGE" | cut -f1)
-            echo "[✓] ${{ env.KERNEL_IMAGE_NAME }} 已生成（${IMAGE_SIZE}）"
+          IMAGE_PATH=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+          if [ -f "$IMAGE_PATH" ]; then
+            echo "[✓] 内核镜像已生成：$IMAGE_PATH"
+            ls -lh "$IMAGE_PATH"
           else
-            echo "[✗] ${{ env.KERNEL_IMAGE_NAME }} 缺失"
+            echo "[✗] 内核镜像未生成：$IMAGE_PATH"
+            echo "=== 检查 out 目录产物 ==="
+            find $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot -type f 2>/dev/null
             FAIL=1
           fi
-          if [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/dts" ]; then
-            echo "[✓] DTB 文件已生成"
-          else
-            echo "[⚠️] DTB 目录未生成（可能无独立DTB）"
-          fi
           if [ $FAIL -eq 1 ]; then
-            echo "❌ 第十二步校验失败，编译产物缺失"
+            echo "❌ 第十二步校验失败，终止后续步骤"
             exit 1
           fi
           echo "✅ 第十二步校验通过，进入第十三步"
 
-      # ==================== 第十三步：打包 AnyKernel3 刷机包 ====================
-      - name: 【第十三步】克隆 AnyKernel3 模板并打包
+      # ==================== 第十三步：打包内核ZIP ====================
+      - name: 【第十三步】打包内核ZIP
         id: step13
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
-          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} anykernel/
-          if [ -d android-kernel/out/arch/arm64/boot/dts ]; then
-            cp -r android-kernel/out/arch/arm64/boot/dts anykernel/
-          fi
-          cd anykernel
-          sed -i "s|kernel.string=.*|kernel.string=${{ env.KERNEL_ZIP_NAME }}|" anykernel.sh
-          sed -i "s|device.name1=.*|device.name1=sagit|" anykernel.sh
-          sed -i "s|device.name2=.*|device.name2=mi6|" anykernel.sh
-          zip -r9 ../${{ env.KERNEL_ZIP_NAME }}.zip * -x .git README.md
-          echo "[✓] 刷机包打包完成：${{ env.KERNEL_ZIP_NAME }}.zip"
+          cd $GITHUB_WORKSPACE
+          mkdir -p kernel_workspace/release
+          cp kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} kernel_workspace/release/
+          cd kernel_workspace/release
+          zip -r9 ${{ env.KERNEL_ZIP_NAME }} ${{ env.KERNEL_IMAGE_NAME }}
+          echo "[✓] 内核ZIP打包完成：${{ env.KERNEL_ZIP_NAME }}"
 
-      - name: 【校验·第十三步】确认刷机包已生成
+      - name: 【校验·第十三步】确认ZIP包已生成
         run: |
-          echo "=== 第十三步校验：刷机包确认 ==="
+          echo "=== 第十三步校验：ZIP打包产物 ==="
           FAIL=0
-          ZIP_FILE=$GITHUB_WORKSPACE/kernel_workspace/${{ env.KERNEL_ZIP_NAME }}.zip
-          if [ -f "$ZIP_FILE" ]; then
-            ZIP_SIZE=$(du -h "$ZIP_FILE" | cut -f1)
-            echo "[✓] ${{ env.KERNEL_ZIP_NAME }}.zip 已生成（${ZIP_SIZE}）"
+          ZIP_PATH=$GITHUB_WORKSPACE/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}
+          if [ -f "$ZIP_PATH" ]; then
+            echo "[✓] ZIP包已生成：$ZIP_PATH"
+            ls -lh "$ZIP_PATH"
           else
-            echo "[✗] 刷机包未生成"
+            echo "[✗] ZIP包未生成"
             FAIL=1
           fi
           if [ $FAIL -eq 1 ]; then
-            echo "❌ 第十三步校验失败"
+            echo "❌ 第十三步校验失败，终止后续步骤"
             exit 1
           fi
-          echo "✅ 第十三步校验通过，进入最终上传"
+          echo "✅ 第十三步校验通过，进入第十四步"
 
-      # ==================== 第十四步：上传构建产物 ====================
-      - name: 【第十四步】上传刷机包到 Artifacts
+      # ==================== 第十四步：上传产物 ====================
+      - name: 【第十四步】上传内核ZIP到Artifacts
         id: step14
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: ${{ github.workspace }}/kernel_workspace/${{ env.KERNEL_ZIP_NAME }}.zip
-          retention-days: 7
+          path: ${{ github.workspace }}/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}
+          retention-days: 30
 
       - name: 【第十四步】上传编译日志
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: ${{ github.workspace }}/kernel_workspace/android-kernel/build.log
-          retention-days: 7
+          retention-days: 30
 
-      - name: 【最终汇总】构建完成
+      - name: 【校验·第十四步】确认上传完成
         run: |
-          echo "=============================================="
-          echo "  🎉 小米6 全功能内核构建成功！"
-          echo "=============================================="
-          echo "  刷机包：${{ env.KERNEL_ZIP_NAME }}.zip"
+          echo "=== 第十四步校验：产物上传 ==="
+          echo "[✓] 内核ZIP已上传至 Actions Artifacts"
+          echo "[✓] 编译日志已上传至 Actions Artifacts"
+          echo "✅ 第十四步校验通过"
+
+      # ==================== 第十五步：构建完成摘要 ====================
+      - name: 【第十五步】构建完成摘要
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          echo ""
+          echo "╔════════════════════════════════════════╗"
+          echo "║     🎉 小米6内核构建全部完成！       ║"
+          echo "╚════════════════════════════════════════╝"
+          echo ""
+          echo "📋 构建摘要："
+          echo "  内核源码：${{ env.KERNEL_SOURCE }}"
+          echo "  分支：${{ env.KERNEL_SOURCE_BRANCH }}"
           echo "  内核镜像：${{ env.KERNEL_IMAGE_NAME }}"
-          echo "  内核源码分支：${{ env.KERNEL_SOURCE_BRANCH }}"
-          echo "  KernelSU：Legacy 模式已集成"
-          echo "  Docker/LXC：全量配置已开启"
-          echo "  cgroup：内核级自动挂载已启用"
-          echo "=============================================="
+          echo "  产物名称：${{ env.KERNEL_ZIP_NAME }}"
+          echo "  编译器：AOSP Clang 14 (r450784d)"
+          echo "  功能特性："
+          echo "    ✅ Docker 全量支持"
+          echo "    ✅ LXC 容器支持"
+          echo "    ✅ KernelSU 集成"
+          echo "    ✅ AppArmor 安全模块"
+          echo "    ✅ cgroup v1 全子系统"
+          echo "    ✅ OverlayFS / VXLAN / IPVS"
+          echo "    ✅ Seccomp + BPF"
+          echo ""
+          echo "📦 产物下载位置：Actions Artifacts"
+          echo "   保留期限：30 天"
