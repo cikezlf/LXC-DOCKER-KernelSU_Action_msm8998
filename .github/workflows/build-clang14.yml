@@ -614,24 +614,29 @@ jobs:
           cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
 
           python3 << 'PYEOF'
-          import re
+          content = open('security/apparmor/crypto.c', 'r').read()
 
-          with open('security/apparmor/crypto.c', 'r') as f:
-              content = f.read()
-
-          # 匹配跨行的函数签名：int aa_calc_profile_hash(...)
-          pattern = r'int\s+aa_calc_profile_hash\s*$[^)]*$\s*\n?\s*\{'
-          match = re.search(pattern, content, flags=re.DOTALL)
-          if not match:
-              print("[✗] 未匹配到 aa_calc_profile_hash 函数定义")
+          # 直接字符串定位函数起始位置
+          func_name = 'int aa_calc_profile_hash'
+          idx = content.find(func_name)
+          if idx == -1:
+              func_name = 'aa_calc_profile_hash'
+              idx = content.find(func_name)
+          if idx == -1:
+              print("[✗] 未找到 aa_calc_profile_hash 函数定义")
               exit(1)
 
-          print(f"[✓] 匹配到函数签名：{match.group(0)[:80]}...")
-          func_start = match.start()
+          print(f"[✓] 定位到函数定义，位置 {idx}，内容：{content[idx:idx+60].strip()!r}")
 
-          # 括号匹配定位函数体结束位置
+          # 找到函数体的开括号 '{'
+          brace_start = content.find('{', idx)
+          if brace_start == -1:
+              print("[✗] 未找到函数体开括号")
+              exit(1)
+
+          # 括号匹配，找到函数结束的 '}'
           depth = 1
-          pos = match.end()
+          pos = brace_start + 1
           while pos < len(content) and depth > 0:
               if content[pos] == '{':
                   depth += 1
@@ -643,7 +648,7 @@ jobs:
               print("[✗] 函数体花括号不匹配")
               exit(1)
 
-          # 替换后的新函数：用 kzalloc 替代栈上变长数组
+          # 完整替换函数
           new_func = '''int aa_calc_profile_hash(struct aa_profile *profile, u32 version, void *start,
                          size_t len)
           {
@@ -692,20 +697,19 @@ jobs:
               return error;
           }'''
 
-          content = content[:func_start] + new_func + content[pos:]
-          with open('security/apparmor/crypto.c', 'w') as f:
-              f.write(content)
-
+          content = content[:idx] + new_func + content[pos:]
+          open('security/apparmor/crypto.c', 'w').write(content)
           print("[✓] aa_calc_profile_hash 函数替换完成")
           PYEOF
 
-          # 校验：确认变长数组语法已消失
+          # 校验
           if grep -q "char ctx\[crypto_shash_descsize" security/apparmor/crypto.c; then
             echo "[✗] 变长数组行仍然存在，修复失败"
             exit 1
           else
-            echo "[✓] AppArmor 变长数组兼容修复完成，已适配 Clang14"
+            echo "[✓] AppArmor 变长数组兼容修复完成"
           fi
+
 
 
 
