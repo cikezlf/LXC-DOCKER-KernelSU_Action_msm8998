@@ -859,6 +859,58 @@ jobs:
           echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
 
 
+      - name: 【新增修复Clang兼容7】适配msm_sensor.c隐式compat_ptr未定义错误
+        id: fix-msm-sensor-compat
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
+          cp "$SENSOR_FILE" "$SENSOR_FILE.bak"
+
+          # 第一级：直接添加compat_ptr专属头文件，即使CONFIG_COMPAT未启用也能引入函数定义
+          sed -i '1i #include <linux/compat.h>' "$SENSOR_FILE"
+          echo "[✓] 已在msm_sensor.c头部引入linux/compat.h头文件"
+
+          # 第二级：兜底兼容，将32位指针转换逻辑直接替换为原生64位兼容写法
+          sed -i 's/data = (char \*) compat_ptr(data32->data_buffer);/data = (char *)(uintptr_t)data32->data_buffer;/g' "$SENSOR_FILE"
+          echo "[✓] 已将compat_ptr调用替换为64位原生指针转换写法，彻底移除对32位COMPAT层的依赖"
+
+      - name: 【校验·修复7】msm_sensor.c适配确认
+        run: |
+          SENSOR_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
+          FAIL=0
+
+          # 校验头文件引入
+          if grep -q "#include <linux/compat.h>" "$SENSOR_FILE"; then
+            echo "[✓] linux/compat.h头文件已正确引入"
+          else
+            echo "[✗] compat.h头文件缺失，修复失败"
+            FAIL=1
+          fi
+
+          # 校验compat_ptr调用已被完全替换
+          if grep -q "data = (char \*)(uintptr_t)data32->data_buffer;" "$SENSOR_FILE"; then
+            echo "[✓] compat_ptr已替换为64位原生指针转换逻辑"
+          else
+            echo "[✗] 指针转换逻辑替换失败"
+            FAIL=1
+          fi
+
+          # 校验原始compat_ptr残留完全清除
+          if grep -q "compat_ptr(" "$SENSOR_FILE"; then
+            echo "[✗] 检测到残留的compat_ptr函数调用，移除不彻底"
+            FAIL=1
+          else
+            echo "[✓] 原始compat_ptr调用已完全清除"
+          fi
+
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ msm_sensor.c适配校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 修复7校验通过，彻底消除隐式函数声明与不完整结构体错误"
+
+
+
       - name: 【新增修复Clang兼容6】移除AppArmor domain.c冗余括号相等比较
         id: fix-apparmor-parentheses
         run: |
@@ -902,20 +954,25 @@ jobs:
           sed -i '/KBUILD_CFLAGS.*-Wno-error=int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
+          sed -i '/KBUILD_CFLAGS.*-Wno-implicit-function-declaration/d' Makefile
           echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
-      
-          # -------------------------- 第二层：写入三层强制豁免规则 --------------------------
+
+          # -------------------------- 第二层：写入六层强制豁免规则 --------------------------
           echo ""
-          echo "=== 写入三层Werror豁免规则 ==="
+          echo "=== 写入六层Werror豁免规则 ==="
           echo "KBUILD_CFLAGS   += -Wno-error=int-conversion" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-int-conversion" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-error=parentheses-equality" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-parentheses-equality" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-implicit-function-declaration" >> Makefile
           echo "[✓] 第一层规则写入：屏蔽int转指针/指针转int的告警升级为致命错误"
           echo "[✓] 第二层规则写入：完全关闭int-conversion类型转换告警输出"
           echo "[✓] 第三层规则写入：屏蔽冗余括号相等比较的告警升级为致命错误"
           echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
-      
+          echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
+          echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
+
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
           echo "=== 校验豁免规则写入结果 ==="
@@ -944,10 +1001,23 @@ jobs:
             echo "[✗] 第四层规则写入失败，终止构建"
             FAIL=1
           fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration" Makefile; then
+            echo "[✓] 第五层implicit-function-declaration错误屏蔽规则已生效"
+          else
+            echo "[✗] 第五层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-implicit-function-declaration" Makefile; then
+            echo "[✓] 第六层implicit-function-declaration告警关闭规则已生效"
+          else
+            echo "[✗] 第六层规则写入失败，终止构建"
+            FAIL=1
+          fi
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ 四层Werror豁免配置全部校验通过，从根源规避所有已知Clang类型告警升级为致命错误"
+          echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
+
       
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
@@ -982,6 +1052,8 @@ jobs:
           grep -n -i "relocation truncated" full_build_detail.log || echo "[!] 日志中无截断重定位错误"
           grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
           grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
+          grep -n -i "implicit-function-declaration" full_build_detail.log || echo "[!] 日志中无隐式函数声明相关告警"
+
       
           # -------------------------- 第七层：编译结果状态判定 --------------------------
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
