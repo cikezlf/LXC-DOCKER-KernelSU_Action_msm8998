@@ -549,6 +549,64 @@ jobs:
           fi
           echo "✅ 修复2校验通过"
 
+      - name: 【修复Clang兼容3】stack_pointer.h 全局寄存器变量
+        id: fix-sp
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp arch/arm64/include/asm/stack_pointer.h arch/arm64/include/asm/stack_pointer.h.bak
+          python3 << 'PYEOF'
+          content = open('arch/arm64/include/asm/stack_pointer.h', 'r').read()
+          old = 'register unsigned long current_stack_pointer asm ("sp");'
+          new = '''static __always_inline unsigned long current_stack_pointer(void)
+          {
+              unsigned long sp;
+              asm volatile("mov %0, sp" : "=r"(sp));
+              return sp;
+          }'''
+          if old in content:
+              content = content.replace(old, new)
+              open('arch/arm64/include/asm/stack_pointer.h', 'w').write(content)
+              print("[✓] stack_pointer.h 全局寄存器变量已替换为内联函数")
+          else:
+              print("[!] 未找到目标代码，可能已被修复，跳过")
+          PYEOF
+
+      - name: 【校验·修复3】stack_pointer.h 确认
+        run: |
+          FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/stack_pointer.h
+          if grep -q 'register unsigned long current_stack_pointer asm' "$FILE"; then
+            echo "[✗] 全局寄存器变量未移除"
+            exit 1
+          else
+            echo "[✓] 全局寄存器变量已移除"
+          fi
+          echo "✅ 修复3校验通过"
+
+      - name: 【修复Clang兼容4】spinlock.h 立即数约束
+        id: fix-spinlock
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp arch/arm64/include/asm/spinlock.h arch/arm64/include/asm/spinlock.h.bak
+          sed -i 's/"I" (1 << TICKET_SHIFT)/"r" (1 << TICKET_SHIFT)/g' arch/arm64/include/asm/spinlock.h
+          if grep -q '"r" (1 << TICKET_SHIFT)' arch/arm64/include/asm/spinlock.h; then
+            echo "[✓] spinlock.h 立即数约束已从 I 改为 r"
+          else
+            echo "[✗] 替换失败"
+            exit 1
+          fi
+
+      - name: 【校验·修复4】spinlock.h 确认
+        run: |
+          FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/spinlock.h
+          if grep -q '"I" (1 << TICKET_SHIFT)' "$FILE"; then
+            echo "[✗] 仍存在 I 约束"
+            exit 1
+          else
+            echo "[✓] 所有 I 约束已替换为 r 约束"
+          fi
+          echo "✅ 修复4校验通过"
+
+
 
 
       # ==================== 第十一步：全量内核编译 ====================
