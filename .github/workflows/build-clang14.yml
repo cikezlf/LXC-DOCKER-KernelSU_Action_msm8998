@@ -572,8 +572,8 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp arch/arm64/include/asm/spinlock.h arch/arm64/include/asm/spinlock.h.errorbak
           sed -i 's/"r" (1 << TICKET_SHIFT)/"I" (1 << TICKET_SHIFT)/g' arch/arm64/include/asm/spinlock.h
-          sed -i '/#define TICKET_SHIFT 16/a asm(".equ TICKET_SHIFT, 16");' arch/arm64/include/asm/spinlock.h
-          echo "[✓] spinlock.h原生立即数约束已恢复，适配Clang生成合法64位汇编"
+          echo "[✓] spinlock.h原生立即数约束已恢复，无需额外汇编常量定义"
+
 
       - name: 【校验·修复4】spinlock.h最终适配验证
         run: |
@@ -585,17 +585,18 @@ jobs:
             echo "[✗] spinlock.h原生约束未正确回滚"
             FAIL=1
           fi
-          if grep -q 'asm(".equ TICKET_SHIFT, 16");' "$SPINLOCK_FILE"; then
-            echo "[✓] TICKET_SHIFT已同步定义为汇编级可见立即数"
-          else
-            echo "[✗] 汇编级常量定义未成功写入"
+          if grep -q '"r" (1 << TICKET_SHIFT)' "$SPINLOCK_FILE"; then
+            echo "[✗] 检测到残留的通用寄存器约束，回滚不彻底"
             FAIL=1
+          else
+            echo "[✓] 通用寄存器约束已完全移除"
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ spinlock.h最终适配校验失败，终止构建"
             exit 1
           fi
           echo "✅ 修复4校验通过，完全规避add w9,w9,x10类位宽不匹配的非法汇编错误"
+
 
       - name: 【修复Clang兼容5.1】适配perf_event.h中current_stack_pointer调用逻辑
         id: fix-perf-stack-adapt
