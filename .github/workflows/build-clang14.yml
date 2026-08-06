@@ -5,8 +5,8 @@ on:
 jobs:
   build:
     name: 内核完整构建流程
-    runs-on: ubuntu-latest
-    #runs-on: self-hosted
+    #runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
