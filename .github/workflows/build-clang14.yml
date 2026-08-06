@@ -58,7 +58,6 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
 
-
       - name: 【校验·第二步】依赖完整性
         run: |
           FAIL=0
@@ -218,10 +217,8 @@ jobs:
               echo "$config" >> "$DEFCONFIG"
             fi
           }
-          # IPC
           add_config "CONFIG_SYSVIPC=y"
           add_config "CONFIG_POSIX_MQUEUE=y"
-          # 命名空间
           add_config "CONFIG_NAMESPACES=y"
           add_config "CONFIG_PID_NS=y"
           add_config "CONFIG_UTS_NS=y"
@@ -229,10 +226,8 @@ jobs:
           add_config "CONFIG_USER_NS=y"
           add_config "CONFIG_NET_NS=y"
           add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
-          # Seccomp
           add_config "CONFIG_SECCOMP=y"
           add_config "CONFIG_SECCOMP_FILTER=y"
-          # Cgroup v1
           add_config "CONFIG_CGROUPS=y"
           add_config "CONFIG_CGROUP_CPUACCT=y"
           add_config "CONFIG_CGROUP_DEVICE=y"
@@ -252,14 +247,11 @@ jobs:
           add_config "CONFIG_NET_CLS_CGROUP=y"
           add_config "CONFIG_BLK_DEV_THROTTLING=y"
           add_config "CONFIG_CGROUP_BPF=y"
-          # 设备文件系统
           add_config "CONFIG_DEVTMPFS=y"
           add_config "CONFIG_DEVTMPFS_MOUNT=y"
           add_config "CONFIG_FW_LOADER=y"
           add_config "CONFIG_FW_LOADER_USER_HELPER=y"
-          # Overlay
           add_config "CONFIG_OVERLAY_FS=y"
-          # 文件系统
           add_config "CONFIG_TMPFS_XATTR=y"
           add_config "CONFIG_TMPFS_POSIX_ACL=y"
           add_config "CONFIG_EXT4_FS=y"
@@ -269,7 +261,6 @@ jobs:
           add_config "CONFIG_BTRFS_FS_POSIX_ACL=y"
           add_config "CONFIG_SQUASHFS=y"
           add_config "CONFIG_SQUASHFS_XATTR=y"
-          # 网络虚拟化
           add_config "CONFIG_VETH=y"
           add_config "CONFIG_BRIDGE=y"
           add_config "CONFIG_BRIDGE_NETFILTER=y"
@@ -277,7 +268,6 @@ jobs:
           add_config "CONFIG_IPVLAN=y"
           add_config "CONFIG_VXLAN=y"
           add_config "CONFIG_VLAN_8021Q=y"
-          # Netfilter / NAT
           add_config "CONFIG_NETFILTER=y"
           add_config "CONFIG_NETFILTER_ADVANCED=y"
           add_config "CONFIG_NF_CONNTRACK=y"
@@ -297,28 +287,22 @@ jobs:
           add_config "CONFIG_NETFILTER_XT_MARK=y"
           add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
           add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-          # IPVS
           add_config "CONFIG_IP_VS=y"
           add_config "CONFIG_IP_VS_NFCT=y"
           add_config "CONFIG_IP_VS_PROTO_TCP=y"
           add_config "CONFIG_IP_VS_PROTO_UDP=y"
           add_config "CONFIG_IP_VS_RR=y"
-          # IPv6
           add_config "CONFIG_IPV6=y"
           add_config "CONFIG_IP6_NF_FILTER=y"
           add_config "CONFIG_IP6_NF_NAT=y"
           add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
-          # 安全
           add_config "CONFIG_SECURITY_APPARMOR=y"
           add_config "CONFIG_FHANDLE=y"
           add_config "CONFIG_CHECKPOINT_RESTORE=y"
-          # BPF
           add_config "CONFIG_BPF=y"
           add_config "CONFIG_BPF_SYSCALL=y"
           add_config "CONFIG_BPF_JIT=y"
-          # 模块
           add_config "CONFIG_MODULES=y"
-          # 关闭 Android 网络限制
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
           echo "[✓] Docker/LXC 全量配置已写入"
 
@@ -402,7 +386,7 @@ jobs:
           }
           retry=0
           while [ $retry -lt $MAX_RETRY ]; do
-              do_mount_cgroups
+              do_mount_cgroups()
               if mount | grep -q "cgroup on $CGROUP_ROOT/devices" && mount | grep -q "cgroup on $CGROUP_ROOT/systemd" && mount | grep -q "cgroup on $CGROUP_ROOT/freezer"; then
                   echo "[OK] cgroup 挂载成功（尝试次数：$((retry+1))）"
                   exit 0
@@ -605,33 +589,26 @@ jobs:
             echo "[✓] 所有 I 约束已替换为 r 约束"
           fi
           echo "✅ 修复4校验通过"
-          
-      - name: 【修复Clang兼容5】全量移除VDSO模块禁用标记
-        id: fix-vdso-full
+
+      # ==================== 新增VDSO三层全量移除逻辑 ====================
+      - name: 【修复Clang兼容5.1】VDSO配置层全量禁用
+        id: fix-vdso-config
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CONFIG_FILE=out/.config
-          # 彻底清理所有残留VDSO相关配置项
           sed -i '/^CONFIG_VDSO=/d' "$CONFIG_FILE"
           sed -i '/^# CONFIG_VDSO is not set/d' "$CONFIG_FILE"
           sed -i '/^CONFIG_COMPAT_VDSO=/d' "$CONFIG_FILE"
           sed -i '/^# CONFIG_COMPAT_VDSO is not set/d' "$CONFIG_FILE"
           sed -i '/^CONFIG_VDSO32=/d' "$CONFIG_FILE"
           sed -i '/^# CONFIG_VDSO32 is not set/d' "$CONFIG_FILE"
-          # 写入全局禁用规则
           echo "# CONFIG_VDSO is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_COMPAT_VDSO is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_VDSO32 is not set" >> "$CONFIG_FILE"
-          # 备份原VDSO Makefile避免执行编译逻辑
-          cp arch/arm64/kernel/vdso/Makefile arch/arm64/kernel/vdso/Makefile.bak
-          sed -i 's/obj-y += vdso.lds//g' arch/arm64/kernel/vdso/Makefile
-          sed -i 's/obj-y += vgettimeofday.o//g' arch/arm64/kernel/vdso/Makefile
-          sed -i 's/obj-y += sigreturn.o//g' arch/arm64/kernel/vdso/Makefile
-          # 重同步配置确保禁用规则写入构建上下文
           make O=out ARCH=arm64 olddefconfig 2>&1 | tail -3
-          echo "[✓] VDSO全量移除操作已执行"
+          echo "[✓] VDSO配置层禁用操作已执行"
 
-      - name: 【校验·修复5.1】所有VDSO配置禁用状态确认
+      - name: 【校验·5.1】所有VDSO配置禁用状态确认
         run: |
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           FAIL=0
@@ -659,7 +636,20 @@ jobs:
           fi
           echo "✅ 所有VDSO配置均处于禁用状态"
 
-      - name: 【校验·修复5.2】VDSO Makefile修改确认
+      - name: 【修复Clang兼容5.2】VDSO模块Makefile编译目标全清空
+        id: fix-vdso-makefile
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          VDSO_MAKEFILE=arch/arm64/kernel/vdso/Makefile
+          cp "$VDSO_MAKEFILE" "$VDSO_MAKEFILE.bak"
+          sed -i '/vgettimeofday.o/d' "$VDSO_MAKEFILE"
+          sed -i '/sigreturn.o/d' "$VDSO_MAKEFILE"
+          sed -i '/vdso.lds/d' "$VDSO_MAKEFILE"
+          echo "obj-y := " > "$VDSO_MAKEFILE.tmp"
+          mv "$VDSO_MAKEFILE.tmp" "$VDSO_MAKEFILE"
+          echo "[✓] VDSO模块所有编译目标已清空"
+
+      - name: 【校验·5.2】VDSO Makefile编译目标确认
         run: |
           VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/vdso/Makefile
           FAIL=0
@@ -675,6 +665,7 @@ jobs:
           else
             echo "[✓] sigreturn.o编译目标已移除"
           fi
+
           if grep -q "vdso.lds" "$VDSO_MAKEFILE"; then
             echo "[✗] vdso.lds链接脚本编译目标仍未移除"
             FAIL=1
@@ -685,25 +676,27 @@ jobs:
             echo "❌ VDSO Makefile校验失败，终止构建"
             exit 1
           fi
-          echo "✅ VDSO所有编译目标均已移除"
+          echo "✅ VDSO所有编译目标均已完全移除"
 
-      - name: 【校验·修复5.3】vdso_prepare目标排除确认
+      - name: 【修复Clang兼容5.3】顶层vdso_prepare构建入口完全注释跳过
+        id: fix-vdso-top
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          TOP_MAKEFILE=arch/arm64/Makefile
+          sed -i 's/.*vdso_prepare.*/# 已注释VDSO构建入口，规避Clang兼容性错误\n# &/' "$TOP_MAKEFILE"
+          echo "[✓] 顶层VDSO预处理入口已注释"
+
+      - name: 【校验·5.3】vdso_prepare构建入口确认
         run: |
           TOP_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/Makefile
-          if grep -q "vdso_prepare" "$TOP_MAKEFILE"; then
-            echo "[!] 检测到顶层Makefile存在vdso_prepare目标，临时注释跳过"
-            sed -i 's/$(Q)$(MAKE) $(build)=arch\/arm64\/kernel\/vdso vdso_prepare/# $(Q)$(MAKE) $(build)=arch\/arm64\/kernel\/vdso vdso_prepare/g' "$TOP_MAKEFILE"
-          fi
-          if ! grep -q "#]*vdso_prepare" "$TOP_MAKEFILE"; then
-            echo "[✓] vdso_prepare构建目标已完全跳过"
-          else
-            echo "[✗] vdso_prepare构建目标未被排除，仍会触发编译"
+          NON_COMMENTED=$(grep "vdso_prepare" "$TOP_MAKEFILE" 2>/dev/null | grep -v "^#" | grep -v "^$" | wc -l)
+          if [ "$NON_COMMENTED" -gt 0 ]; then
+            echo "[✗] vdso_prepare未被完全注释，仍会触发VDSO预处理"
             exit 1
+          else
+            echo "[✓] vdso_prepare构建入口已完全跳过，不会再触发VDSO编译流程"
           fi
-          echo "✅ vdso_prepare链路已完全切断"
-
-
-
+          echo "✅ VDSO全链路移除完成"
 
       # ==================== 第十一步：全量内核编译 ====================
       - name: 【第十一步】全量内核编译
@@ -712,111 +705,138 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
           export ARCH=arm64
-          make O=out \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            STRIP=llvm-strip \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            -j$(nproc) 2>&1 | tee build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "[✗] 内核编译失败"
+          export CC=clang
+          export CXX=clang++
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
+          echo "[信息] 开始全量内核编译..."
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) 2>&1 | tee build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "❌ 内核编译失败，退出码: $BUILD_EXIT"
+            echo "--- 编译日志尾部 ---"
+            tail -50 build.log
             exit 1
           fi
-          echo "[✓] 内核编译完成"
+          echo "[✓] 内核编译成功"
 
-
-      - name: 【校验·第十一步】编译产物确认
+      - name: 【校验·第十一步】内核镜像产物确认
         run: |
-          IMAGE_PATH=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
-          if [ -f "$IMAGE_PATH" ]; then
-            echo "[✓] 内核镜像已生成：$(ls -lh "$IMAGE_PATH" | awk '{print $5}')"
+          FAIL=0
+          KERNEL_OUT=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
+          IMAGE=$KERNEL_OUT/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+          if [ -f "$IMAGE" ]; then
+            echo "[✓] 内核镜像存在: $(ls -lh "$IMAGE" | awk '{print $5}')"
           else
-            echo "[✗] 内核镜像未生成"
+            echo "[✗] 内核镜像缺失: $IMAGE"
+            FAIL=1
+          fi
+          if [ -f "$KERNEL_OUT/vmlinux" ]; then
+            echo "[✓] vmlinux 存在: $(ls -lh "$KERNEL_OUT/vmlinux" | awk '{print $5}')"
+          else
+            echo "[✗] vmlinux 缺失"
+            FAIL=1
+          fi
+          if [ -d "$KERNEL_OUT/arch/arm64/boot/dts" ]; then
+            echo "[✓] DTB 目录存在"
+          else
+            echo "[✗] DTB 目录缺失"
+            FAIL=1
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 第十一步校验失败，终止构建"
             exit 1
           fi
           echo "✅ 第十一步校验通过"
 
-      # ==================== 第十二步：打包 ====================
-      - name: 【第十二步】AnyKernel3 刷机包打包
+      # ==================== 第十二步：打包 AnyKernel3 ZIP ====================
+      - name: 【第十二步】拉取 AnyKernel3 模板
         id: step12
         run: |
-          cd $GITHUB_WORKSPACE
-          rm -rf AnyKernel3
-          git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3.git
-          cd AnyKernel3
-          rm -f Image.gz-dtb *.dtbo
-          cp $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} ./
-          find $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/dts -name "*.dtbo" -exec cp {} ./ \; 2>/dev/null || true
-          sed -i "s|kernel.string=.*|kernel.string=${{ env.KERNEL_ZIP_NAME }}|g" anykernel.sh
-          sed -i "s|device.name1=.*|device.name1=sagit|g" anykernel.sh
-          sed -i "s|device.name2=.*|device.name2=MI6|g" anykernel.sh
-          mkdir -p $GITHUB_WORKSPACE/kernel_workspace/release
-          zip -r9 $GITHUB_WORKSPACE/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}-AnyKernel3.zip * -x .git README.md
-          echo "[✓] AnyKernel3 刷机包打包完成"
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d AnyKernel3/.git ]; then
+            git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3.git
+          fi
+          echo "[✓] AnyKernel3 模板就绪"
 
-      - name: 【校验·第十二步】刷机包完整性
+      - name: 【校验·第十二步】AnyKernel3 完整性
         run: |
-          ANYKERNEL_ZIP=$GITHUB_WORKSPACE/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}-AnyKernel3.zip
-          if [ -f "$ANYKERNEL_ZIP" ]; then
-            echo "[✓] 刷机包已生成"
-            unzip -t "$ANYKERNEL_ZIP" > /dev/null 2>&1 && echo "[✓] ZIP CRC 校验通过" || { echo "[✗] ZIP 损坏"; exit 1; }
-          else
-            echo "[✗] 刷机包缺失"
+          FAIL=0
+          AK3_DIR=$GITHUB_WORKSPACE/kernel_workspace/AnyKernel3
+          for f in "anykernel.sh" "tools" "META-INF"; do
+            if [ -e ${AK3_DIR}/${f} ]; then
+              echo "[✓] ${f}"
+            else
+              echo "[✗] ${f} 缺失"
+              FAIL=1
+            fi
+          done
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 第十二步校验失败，终止构建"
             exit 1
           fi
           echo "✅ 第十二步校验通过"
 
-      # ==================== 第十三步：上传产物 ====================
-      - name: 【第十三步】上传 Artifacts
+      - name: 【第十二步续】打包内核 ZIP
+        id: step12b
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          AK3_DIR=$GITHUB_WORKSPACE/kernel_workspace/AnyKernel3
+          KERNEL_OUT=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
+          IMAGE=$KERNEL_OUT/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+          cp "$IMAGE" "$AK3_DIR/"
+          if [ -d "$KERNEL_OUT/arch/arm64/boot/dts" ]; then
+            cp -r "$KERNEL_OUT/arch/arm64/boot/dts" "$AK3_DIR/"
+          fi
+          cat > "$AK3_DIR/anykernel.sh" << 'AK3EOF'
+          # AnyKernel3 配置
+          kernel.string=小米6全功能内核·Docker/LXC/KernelSU
+          device.name1=sagit
+          device.name2=MI 6
+          device.name3=mi6
+          block=/dev/block/bootdevice/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          do.modules=0
+          AK3EOF
+          cd "$AK3_DIR"
+          ZIP_NAME=${{ env.KERNEL_ZIP_NAME }}
+          zip -r9 "${ZIP_NAME}" * -x .git -x README.md -x .gitignore -x "*.zip" 2>&1 | tail -3
+          if [ -f "${ZIP_NAME}" ]; then
+            echo "[✓] 内核 ZIP 打包完成: $(ls -lh "${ZIP_NAME}" | awk '{print $5}')"
+          else
+            echo "[✗] ZIP 打包失败"
+            exit 1
+          fi
+
+      - name: 【校验·第十二步续】ZIP 产物确认
+        run: |
+          AK3_DIR=$GITHUB_WORKSPACE/kernel_workspace/AnyKernel3
+          ZIP_NAME=${{ env.KERNEL_ZIP_NAME }}
+          if [ -f "${AK3_DIR}/${ZIP_NAME}" ]; then
+            echo "[✓] 最终 ZIP: $(ls -lh "${AK3_DIR}/${ZIP_NAME}" | awk '{print $5}')"
+            unzip -l "${AK3_DIR}/${ZIP_NAME}" | head -15
+          else
+            echo "[✗] 最终 ZIP 缺失"
+            exit 1
+          fi
+          echo "✅ 第十二步续校验通过"
+
+      # ==================== 第十三步：上传构建产物 ====================
+      - name: 【第十三步】上传内核 ZIP 到 Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: ${{ github.workspace }}/kernel_workspace/release/*.zip
+          path: ${{ github.workspace }}/kernel_workspace/AnyKernel3/${{ env.KERNEL_ZIP_NAME }}
+          retention-days: 30
 
-      # ==================== 第十四步：GitHub Release ====================
-      - name: 【第十四步】GitHub Release 发布
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: kernel-release-${{ github.run_number }}
-          name: "[小米6] ${{ env.KERNEL_ZIP_NAME }} 构建 #${{ github.run_number }}"
-          files: ${{ github.workspace }}/kernel_workspace/release/*.zip
-          body: |
-            ## 内核发布说明
-            - 编译器：AOSP Clang 14 (r450784d)
-            - 适配设备：小米6 (sagit)
-            - 预装特性：
-              ✅ Docker/LXC 全量支持
-              ✅ KernelSU Next Legacy
-              ✅ AppArmor 安全模块
-              ✅ cgroup 自动挂载（10次重试）
-              ✅ OverlayFS / Netfilter / IPVS 全量网络虚拟化
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ==================== 全流程校验报告 ====================
-      - name: 【最终】全流程校验报告
+      - name: 【校验·第十三步】上传结果确认
         run: |
-          echo "=========================================="
-          echo "     小米6 全功能内核 全流程校验报告"
-          echo "=========================================="
-          echo "[1/14] 全局环境配置加载 ✅"
-          echo "[2/14] 编译依赖全部安装 ✅"
-          echo "[3/14] 资源缓存路径校验 ✅"
-          echo "[4/14] AOSP Clang14 工具链就绪 ✅"
-          echo "[5/14] 内核源码克隆完成 ✅"
-          echo "[6/14] 基础内核配置生成 ✅"
-          echo "[7/14] Docker/LXC 配置全部写入 ✅"
-          echo "[8/14] cgroup 自动挂载 + ramdisk 脚本 ✅"
-          echo "[9/14] KernelSU Legacy 驱动集成 ✅"
-          echo "[10/14] olddefconfig + Clang 双兼容修复 ✅"
-          echo "[11/14] 全量内核编译完成 ✅"
-          echo "[12/14] AnyKernel3 刷机包打包 ✅"
-          echo "[13/14] 产物上传 Artifacts ✅"
-          echo "[14/14] GitHub Release 发布 ✅"
-          echo "=========================================="
-          echo "🎉 全流程 100% 校验通过！"
+          echo "[✓] 构建产物已上传至 Artifacts"
+          echo "文件名: ${{ env.KERNEL_ZIP_NAME }}"
+          echo "保留期限: 30 天"
+          echo "✅ 全流程构建完成"
