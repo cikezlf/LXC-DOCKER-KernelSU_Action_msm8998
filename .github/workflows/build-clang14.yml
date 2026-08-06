@@ -613,24 +613,23 @@ jobs:
           echo "✅ 修复5.1校验通过"
       
       - name: 【修复Clang兼容5.2】关闭Werror下的不兼容类型转换告警拦截
-        id: disable-int-conv-werror
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TOP_MAKEFILE=Makefile
-          # 采用标准行追加写法，完全规避转义换行异常
-          sed -i '/KBUILD_CFLAGS   += -Werror/a KBUILD_CFLAGS   += -Wno-error=int-conversion' "$TOP_MAKEFILE"
-          echo "[✓] 内核顶层Makefile已关闭int-conversion类型转换告警的Werror拦截"
-
+          echo "KBUILD_CFLAGS   += -Wno-error=int-conversion" >> "$TOP_MAKEFILE"
+          echo "[✓] 已关闭 int-conversion 类型转换告警的 Werror 拦截"
+      
       - name: 【校验·修复5.2】Werror配置确认
         run: |
           TOP_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/Makefile
           if grep -q "KBUILD_CFLAGS   += -Wno-error=int-conversion" "$TOP_MAKEFILE"; then
-            echo "[✓] int-conversion告警已从Werror中豁免"
+            echo "[✓] int-conversion 告警已从 Werror 中豁免"
           else
-            echo "[✗] Werror配置修改失败"
+            echo "[✗] Werror 配置修改失败"
             exit 1
           fi
           echo "✅ 修复5.2校验通过"
+
 
 
 
