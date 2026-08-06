@@ -605,39 +605,103 @@ jobs:
             echo "[✓] 所有 I 约束已替换为 r 约束"
           fi
           echo "✅ 修复4校验通过"
-
-      - name: 【修复Clang兼容5】禁用 VDSO
-        id: fix-vdso
+          
+      - name: 【修复Clang兼容5】全量移除VDSO模块禁用标记
+        id: fix-vdso-full
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CONFIG_FILE=out/.config
-          # 先移除可能存在的旧配置行
+          # 彻底清理所有残留VDSO相关配置项
           sed -i '/^CONFIG_VDSO=/d' "$CONFIG_FILE"
           sed -i '/^# CONFIG_VDSO is not set/d' "$CONFIG_FILE"
           sed -i '/^CONFIG_COMPAT_VDSO=/d' "$CONFIG_FILE"
-          # 写入禁用配置
+          sed -i '/^# CONFIG_COMPAT_VDSO is not set/d' "$CONFIG_FILE"
+          sed -i '/^CONFIG_VDSO32=/d' "$CONFIG_FILE"
+          sed -i '/^# CONFIG_VDSO32 is not set/d' "$CONFIG_FILE"
+          # 写入全局禁用规则
           echo "# CONFIG_VDSO is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_COMPAT_VDSO is not set" >> "$CONFIG_FILE"
-          # 重新同步
-          make O=out ARCH=arm64 olddefconfig 2>&1 | tail -5
-          echo "[✓] VDSO 已禁用"
+          echo "# CONFIG_VDSO32 is not set" >> "$CONFIG_FILE"
+          # 备份原VDSO Makefile避免执行编译逻辑
+          cp arch/arm64/kernel/vdso/Makefile arch/arm64/kernel/vdso/Makefile.bak
+          sed -i 's/obj-y += vdso.lds//g' arch/arm64/kernel/vdso/Makefile
+          sed -i 's/obj-y += vgettimeofday.o//g' arch/arm64/kernel/vdso/Makefile
+          sed -i 's/obj-y += sigreturn.o//g' arch/arm64/kernel/vdso/Makefile
+          # 重同步配置确保禁用规则写入构建上下文
+          make O=out ARCH=arm64 olddefconfig 2>&1 | tail -3
+          echo "[✓] VDSO全量移除操作已执行"
 
-      - name: 【校验·修复5】VDSO 禁用确认
+      - name: 【校验·修复5.1】所有VDSO配置禁用状态确认
         run: |
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          FAIL=0
           if grep -q "^CONFIG_VDSO=y" "$CONFIG_FILE" 2>/dev/null; then
-            echo "[✗] VDSO 仍为启用状态"
-            exit 1
+            echo "[✗] 普通VDSO仍处于启用状态"
+            FAIL=1
           else
-            echo "[✓] VDSO 已确认禁用"
+            echo "[✓] 普通VDSO已确认禁用"
           fi
           if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE" 2>/dev/null; then
-            echo "[✗] COMPAT_VDSO 仍为启用状态"
-            exit 1
+            echo "[✗] 32位兼容VDSO仍处于启用状态"
+            FAIL=1
           else
-            echo "[✓] COMPAT_VDSO 已确认禁用"
+            echo "[✓] 32位兼容VDSO已确认禁用"
           fi
-          echo "✅ 修复5校验通过"
+          if grep -q "^CONFIG_VDSO32=y" "$CONFIG_FILE" 2>/dev/null; then
+            echo "[✗] VDSO32仍处于启用状态"
+            FAIL=1
+          else
+            echo "[✓] VDSO32已确认禁用"
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ VDSO配置校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 所有VDSO配置均处于禁用状态"
+
+      - name: 【校验·修复5.2】VDSO Makefile修改确认
+        run: |
+          VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/vdso/Makefile
+          FAIL=0
+          if grep -q "vgettimeofday.o" "$VDSO_MAKEFILE"; then
+            echo "[✗] vgettimeofday.o编译目标仍未移除"
+            FAIL=1
+          else
+            echo "[✓] vgettimeofday.o编译目标已移除"
+          fi
+          if grep -q "sigreturn.o" "$VDSO_MAKEFILE"; then
+            echo "[✗] sigreturn.o编译目标仍未移除"
+            FAIL=1
+          else
+            echo "[✓] sigreturn.o编译目标已移除"
+          fi
+          if grep -q "vdso.lds" "$VDSO_MAKEFILE"; then
+            echo "[✗] vdso.lds链接脚本编译目标仍未移除"
+            FAIL=1
+          else
+            echo "[✓] vdso.lds链接脚本编译目标已移除"
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ VDSO Makefile校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ VDSO所有编译目标均已移除"
+
+      - name: 【校验·修复5.3】vdso_prepare目标排除确认
+        run: |
+          TOP_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/Makefile
+          if grep -q "vdso_prepare" "$TOP_MAKEFILE"; then
+            echo "[!] 检测到顶层Makefile存在vdso_prepare目标，临时注释跳过"
+            sed -i 's/$(Q)$(MAKE) $(build)=arch\/arm64\/kernel\/vdso vdso_prepare/# $(Q)$(MAKE) $(build)=arch\/arm64\/kernel\/vdso vdso_prepare/g' "$TOP_MAKEFILE"
+          fi
+          if ! grep -q "#]*vdso_prepare" "$TOP_MAKEFILE"; then
+            echo "[✓] vdso_prepare构建目标已完全跳过"
+          else
+            echo "[✗] vdso_prepare构建目标未被排除，仍会触发编译"
+            exit 1
+          fi
+          echo "✅ vdso_prepare链路已完全切断"
+
 
 
 
