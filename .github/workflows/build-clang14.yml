@@ -141,6 +141,40 @@ jobs:
           fi
           echo "✅ 第四步校验通过"
 
+
+      - name: 【新增】拉取ARM32专用Binutils工具链，替换系统默认版本
+        id: step4-extra-arm32-toolchain
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d gcc-arm32/bin ]; then
+            mkdir -p gcc-arm32
+            wget -q https://releases.linaro.org/components/toolchain/binaries/7.5-2019.12/arm-linux-gnueabi/gcc-linaro-7.5.0-2019.12-x86_64_arm-linux-gnueabi.tar.xz
+            tar -xf gcc-linaro-7.5.0-2019.12-x86_64_arm-linux-gnueabi.tar.xz -C ./gcc-arm32 --strip-components=1
+            echo "[✓] 专用ARM32工具链解压完成"
+          fi
+          echo "[✓] ARM32专用工具链就绪"
+
+      - name: 【校验·新增ARM32工具链】可执行文件完整性
+        run: |
+          FAIL=0
+          ARM32_BIN=$GITHUB_WORKSPACE/kernel_workspace/gcc-arm32/bin
+          for f in arm-linux-gnueabi-ld arm-linux-gnueabi-objcopy arm-linux-gnueabi-gcc; do
+            if [ -x ${ARM32_BIN}/${f} ]; then
+              echo "[✓] ${f}"
+            else
+              echo "[✗] ${f} 缺失"
+              FAIL=1
+            fi
+          done
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ ARM32工具链校验失败，终止"
+            exit 1
+          fi
+          echo "✅ ARM32专用工具链校验通过，替换系统默认老旧版本"
+
+
+
+
       # ==================== 第五步：拉取内核源码 ====================
       - name: 【第五步】拉取内核源码
         id: step5
@@ -199,6 +233,40 @@ jobs:
             exit 1
           fi
           echo "✅ 第六步校验通过"
+
+
+      - name: 【适配修复】禁用VDSO32编译选项，彻底消除32位链接依赖
+        id: disable-vdso32
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          sed -i 's/^CONFIG_COMPAT_VDSO=y/# CONFIG_COMPAT_VDSO is not set/' out/.config
+          sed -i 's/^CONFIG_VDSO32=y/# CONFIG_VDSO32 is not set/' out/.config
+          make O=out ARCH=arm64 olddefconfig
+          echo "[✓] VDSO32 已禁用，移除32位VDSO编译依赖"
+
+      - name: 【校验·VDSO禁用确认】
+        run: |
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          FAIL=0
+          if grep -q "# CONFIG_COMPAT_VDSO is not set" "$CONFIG_FILE"; then
+            echo "[✓] CONFIG_COMPAT_VDSO 已禁用"
+          else
+            echo "[✗] CONFIG_COMPAT_VDSO 未正确禁用"
+            FAIL=1
+          fi
+          if grep -q "# CONFIG_VDSO32 is not set" "$CONFIG_FILE"; then
+            echo "[✓] CONFIG_VDSO32 已禁用"
+          else
+            echo "[✗] CONFIG_VDSO32 未正确禁用"
+            FAIL=1
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ VDSO32禁用校验失败，终止"
+            exit 1
+          fi
+          echo "✅ VDSO32 适配校验通过，消除32位链接冲突"
+
+
 
       # ==================== 第七步：Docker/LXC 全量配置 ====================
       - name: 【第七步】写入 Docker/LXC 全量配置
@@ -660,15 +728,16 @@ jobs:
           echo "✅ 修复5.3校验通过，消除该文件内所有类型不兼容隐患"
 
       # ==================== 第十一步：编译内核 ====================
-      - name: 【第十一步】开始编译内核
+      - name: 【第十一步 重写】内核全量编译
         id: step11
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-arm32/bin:$PATH
           export ARCH=arm64
+          export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc-arm32/bin/arm-linux-gnueabi-
           make O=out \
             CC=clang \
             LD=ld.lld \
@@ -677,15 +746,21 @@ jobs:
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
-            -j$(nproc) 2>&1 | tee build.log
-          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+            -j$(nproc) 2>&1 | tee full_build_detail.log
+          BUILD_EXIT_CODE=${PIPESTATUS}
+          echo ""
+          echo "=== 全量错误日志抓取 ==="
+          grep -n -i "error:" full_build_detail.log || echo "[!] 日志中无显性error标记"
+          grep -n -i "undefined reference" full_build_detail.log || echo "[!] 日志中无未定义符号错误"
+          grep -n -i "relocation truncated" full_build_detail.log || echo "[!] 日志中无截断重定位错误"
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
-            echo "=== 最后50行编译日志 ==="
-            tail -50 build.log
+            echo "=== 最后100行完整编译日志 ==="
+            tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译成功"
+          echo "[✓] 内核编译完全成功"
+
 
       - name: 【校验·第十一步】编译产物完整性
         run: |
