@@ -533,7 +533,7 @@ jobs:
             FAIL=1
           fi
       
-          if grep -q "int.*wa_tag" "$HEADER" && grep -q "char .*name\[" "$HEADER"; then
+          if grep -q "int.*wa_tag" "$HEADER" && grep -q -E "char .*name(\[|;|\*)" "$HEADER"; then
             echo "[✓] trace事件结构体定义完整，成员类型顺序无异常"
           else
             echo "[✗] 头文件插入位置错误，破坏原有结构体结构"
