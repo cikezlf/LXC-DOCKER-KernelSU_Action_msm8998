@@ -552,9 +552,15 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
+          export ARCH=arm64
+          make O=out prepare
           PRECHECK_PASS=1
-          clang -fsyntax-only -Werror -I./include -I./out/include fs/fs-writeback.c || PRECHECK_PASS=0
-          clang -fsyntax-only -Werror -I./include -I./out/include security/apparmor/crypto.c || PRECHECK_PASS=0
+          clang -fsyntax-only -Werror -D__KERNEL__ -I./include -I./out/include \
+            -I./out/arch/arm64/include -I./out/arch/arm64/include/generated \
+            fs/fs-writeback.c || PRECHECK_PASS=0
+          clang -fsyntax-only -Werror -D__KERNEL__ -I./include -I./out/include \
+            -I./out/arch/arm64/include -I./out/arch/arm64/include/generated \
+            security/apparmor/crypto.c || PRECHECK_PASS=0
           if [ $PRECHECK_PASS -eq 1 ]; then
             echo "[✓] Clang 语法预检通过"
           else
@@ -562,6 +568,7 @@ jobs:
             exit 1
           fi
           echo "✅ 编译预校验通过"
+
 
       # ==================== 第十一步：全量内核编译 ====================
       - name: 【第十一步】全量内核编译
