@@ -698,6 +698,49 @@ jobs:
           fi
           echo "✅ VDSO全链路移除完成"
 
+      # ==================== 修复·5.4：处理 CROSS_COMPILE_ARM32 错误检查 ====================
+      - name: 【修复Clang兼容5.4】注释 arch/arm64/Makefile 中 CROSS_COMPILE_ARM32 错误检查
+        id: fix-vdso-cross-arm32
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          MAKE68=arch/arm64/Makefile
+          # 备份原文件
+          cp "$MAKE68" "$MAKE68.bak5.4"
+          # 查找并注释包含 CROSS_COMPILE_ARM32 且含 $(error 的行
+          ERROR_LINE=$(grep -n "CROSS_COMPILE_ARM32.*error" "$MAKE68" | head -1 | cut -d: -f1)
+          if [ -n "$ERROR_LINE" ]; then
+            echo "[信息] 在第${ERROR_LINE}行发现 CROSS_COMPILE_ARM32 错误检查"
+            sed -i "${ERROR_LINE}s/^/# [已注释] /" "$MAKE68"
+            sed -i "${ERROR_LINE}s/\$(error/\$(warning/" "$MAKE68"
+            echo "[✓] 已将 \$(error ...) 替换为 \$(warning ...) 并注释"
+          else
+            echo "[信息] 未找到 CROSS_COMPILE_ARM32 错误检查行，跳过"
+          fi
+          # 同时确保 CONFIG_COMPAT_VDSO 检查被绕过
+          sed -i 's/ifdef CONFIG_COMPAT_VDSO/ifdef CONFIG_COMPAT_VDSO_DISABLED_BY_CLANG_FIX/' "$MAKE68"
+          echo "[✓] CONFIG_COMPAT_VDSO 条件判断已重命名绕过"
+
+      - name: 【校验·5.4】确认 CROSS_COMPILE_ARM32 错误检查已移除
+        run: |
+          MAKE68=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/Makefile
+          FAIL=0
+          if grep -n "CROSS_COMPILE_ARM32.*error" "$MAKE68" | grep -v "^#" | grep -v "warning" > /dev/null 2>&1; then
+            echo "[✗] CROSS_COMPILE_ARM32 错误检查仍然存在"
+            FAIL=1
+          else
+            echo "[✓] CROSS_COMPILE_ARM32 错误检查已移除"
+          fi
+          if grep -q "CONFIG_COMPAT_VDSO_DISABLED_BY_CLANG_FIX" "$MAKE68"; then
+            echo "[✓] CONFIG_COMPAT_VDSO 条件已重命名"
+          else
+            echo "[!] CONFIG_COMPAT_VDSO 条件未重命名，尝试继续"
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 修复·5.4 校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 修复·5.4 校验通过，VDSO 全链路阻断完成"
+
       # ==================== 第十一步：全量内核编译 ====================
       - name: 【第十一步】全量内核编译
         id: step11
@@ -714,7 +757,13 @@ jobs:
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
           echo "[信息] 开始全量内核编译..."
-          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) 2>&1 | tee build.log
+          make O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            -j$(nproc) 2>&1 | tee build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
             echo "❌ 内核编译失败，退出码: $BUILD_EXIT"
@@ -723,6 +772,7 @@ jobs:
             exit 1
           fi
           echo "[✓] 内核编译成功"
+
 
       - name: 【校验·第十一步】内核镜像产物确认
         run: |
