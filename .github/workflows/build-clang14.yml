@@ -710,12 +710,70 @@ jobs:
           fi
           echo "✅ 修复5.3校验通过，消除该文件内所有类型不兼容隐患"
 
+
+      - name: 【适配修复终极】完全禁用32位COMPAT兼容层，彻底移除32位编译依赖
+        id: disable-full-32bit
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          sed -i '/CONFIG_COMPAT=y/d' out/.config
+          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
+          sed -i '/CONFIG_VDSO32/d' out/.config
+          echo "# CONFIG_COMPAT is not set" >> out/.config
+          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
+          echo "# CONFIG_VDSO32 is not set" >> out/.config
+          sed -i '/vdso32/d' arch/arm64/kernel/Makefile
+          make O=out ARCH=arm64 olddefconfig
+          sed -i '/CONFIG_COMPAT=y/d' out/.config
+          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
+          sed -i '/CONFIG_VDSO32/d' out/.config
+          echo "# CONFIG_COMPAT is not set" >> out/.config
+          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
+          echo "# CONFIG_VDSO32 is not set" >> out/.config
+          echo "[✓] 全链路32位兼容层已完全禁用，彻底移除所有32位编译逻辑"
+
+      - name: 【校验·全量32位禁用确认】
+        run: |
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          FAIL=0
+          if grep -q "^CONFIG_COMPAT=y" "$CONFIG_FILE"; then
+            echo "[✗] CONFIG_COMPAT 被自动恢复为开启状态"
+            FAIL=1
+          else
+            echo "[✓] CONFIG_COMPAT 已永久禁用"
+          fi
+          if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE"; then
+            echo "[✗] CONFIG_COMPAT_VDSO 被自动恢复为开启状态"
+            FAIL=1
+          else
+            echo "[✓] CONFIG_COMPAT_VDSO 已永久禁用"
+          fi
+          if grep -q "^CONFIG_VDSO32=y" "$CONFIG_FILE"; then
+            echo "[✗] CONFIG_VDSO32 被自动恢复为开启状态"
+            FAIL=1
+          else
+            echo "[✓] CONFIG_VDSO32 已永久禁用"
+          fi
+          VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/Makefile
+          if grep -q "vdso32" "$VDSO_MAKEFILE"; then
+            echo "[✗] Makefile中仍残留vdso32编译规则"
+            FAIL=1
+          else
+            echo "[✓] Makefile中已完全移除vdso32编译规则"
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 32位兼容层禁用校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
+
+
+
       # ==================== 第十一步：编译内核 ====================
       - name: 【第十一步 重写】内核全量编译
         id: step11
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc-arm32/bin:$PATH
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
@@ -730,12 +788,13 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
-          BUILD_EXIT_CODE=${PIPESTATUS}
+          BUILD_EXIT_CODE=$?
           echo ""
           echo "=== 全量错误日志抓取 ==="
           grep -n -i "error:" full_build_detail.log || echo "[!] 日志中无显性error标记"
           grep -n -i "undefined reference" full_build_detail.log || echo "[!] 日志中无未定义符号错误"
           grep -n -i "relocation truncated" full_build_detail.log || echo "[!] 日志中无截断重定位错误"
+          grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
             echo "=== 最后100行完整编译日志 ==="
@@ -743,6 +802,7 @@ jobs:
             exit 1
           fi
           echo "[✓] 内核编译完全成功"
+
 
 
       - name: 【校验·第十一步】编译产物完整性
@@ -768,7 +828,7 @@ jobs:
           else
             echo "[✓] vmlinux 已生成"
           fi
-          BUILD_LOG=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/build.log
+          BUILD_LOG=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/full_build_detail.log
           if grep -qi "error:" "$BUILD_LOG" 2>/dev/null; then
             echo "[✗] 编译日志中存在 error 关键字"
             grep -i "error:" "$BUILD_LOG" | tail -10
@@ -779,6 +839,7 @@ jobs:
             exit 1
           fi
           echo "✅ 第十一步校验通过"
+
 
       # ==================== 第十二步：生成 Image.gz-dtb ====================
       - name: 【第十二步】生成 Image.gz-dtb
@@ -972,9 +1033,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Build-Log
-          path: ${{ github.workspace }}/kernel_workspace/android-kernel/build.log
+          path: ${{ github.workspace }}/kernel_workspace/android-kernel/full_build_detail.log
           if-no-files-found: warn
           compression-level: 6
+
 
       - name: 【校验·第十六步】产物上传确认
         run: |
