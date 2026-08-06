@@ -617,9 +617,10 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TOP_MAKEFILE=Makefile
-          sed -i 's/KBUILD_CFLAGS   += -Werror/# 原有-Werror已临时调整，适配Clang不兼容类型转换\nKBUILD_CFLAGS   += -Wno-error=int-conversion/g' "$TOP_MAKEFILE"
+          # 采用标准行追加写法，完全规避转义换行异常
+          sed -i '/KBUILD_CFLAGS   += -Werror/a KBUILD_CFLAGS   += -Wno-error=int-conversion' "$TOP_MAKEFILE"
           echo "[✓] 内核顶层Makefile已关闭int-conversion类型转换告警的Werror拦截"
-      
+
       - name: 【校验·修复5.2】Werror配置确认
         run: |
           TOP_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/Makefile
@@ -634,6 +635,7 @@ jobs:
 
 
       # ==================== 新增VDSO三层全量移除逻辑 ====================
+
       - name: 【修复Clang兼容5.1】VDSO配置层全量禁用
         id: fix-vdso-config
         run: |
@@ -708,7 +710,6 @@ jobs:
           else
             echo "[✓] sigreturn.o编译目标已移除"
           fi
-
           if grep -q "vdso.lds" "$VDSO_MAKEFILE"; then
             echo "[✗] vdso.lds链接脚本编译目标仍未移除"
             FAIL=1
@@ -726,7 +727,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TOP_MAKEFILE=arch/arm64/Makefile
-          sed -i 's/.*vdso_prepare.*/# 已注释VDSO构建入口，规避Clang兼容性错误\n# &/' "$TOP_MAKEFILE"
+          sed -i '/vdso_prepare/s/^/# 已注释VDSO构建入口，规避Clang兼容性错误\n# /' "$TOP_MAKEFILE"
           echo "[✓] 顶层VDSO预处理入口已注释"
 
       - name: 【校验·5.3】vdso_prepare构建入口确认
@@ -741,25 +742,21 @@ jobs:
           fi
           echo "✅ VDSO全链路移除完成"
 
-      # ==================== 修复·5.4：处理 CROSS_COMPILE_ARM32 错误检查 ====================
       - name: 【修复Clang兼容5.4】注释 arch/arm64/Makefile 中 CROSS_COMPILE_ARM32 错误检查
         id: fix-vdso-cross-arm32
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           MAKE68=arch/arm64/Makefile
-          # 备份原文件
           cp "$MAKE68" "$MAKE68.bak5.4"
-          # 查找并注释包含 CROSS_COMPILE_ARM32 且含 $(error 的行
           ERROR_LINE=$(grep -n "CROSS_COMPILE_ARM32.*error" "$MAKE68" | head -1 | cut -d: -f1)
           if [ -n "$ERROR_LINE" ]; then
             echo "[信息] 在第${ERROR_LINE}行发现 CROSS_COMPILE_ARM32 错误检查"
             sed -i "${ERROR_LINE}s/^/# [已注释] /" "$MAKE68"
             sed -i "${ERROR_LINE}s/\$(error/\$(warning/" "$MAKE68"
-            echo "[✓] 已将 \$(error ...) 替换为 \$(warning ...) 并注释"
+            echo "[✓] 已将 $(error ...) 替换为 $(warning ...) 并注释"
           else
             echo "[信息] 未找到 CROSS_COMPILE_ARM32 错误检查行，跳过"
           fi
-          # 同时确保 CONFIG_COMPAT_VDSO 检查被绕过
           sed -i 's/ifdef CONFIG_COMPAT_VDSO/ifdef CONFIG_COMPAT_VDSO_DISABLED_BY_CLANG_FIX/' "$MAKE68"
           echo "[✓] CONFIG_COMPAT_VDSO 条件判断已重命名绕过"
 
@@ -767,7 +764,7 @@ jobs:
         run: |
           MAKE68=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/Makefile
           FAIL=0
-          if grep -n "CROSS_COMPILE_ARM32.*error" "$MAKE68" | grep -v "^#" | grep -v "warning" > /dev/null 2>&1; then
+          if grep "CROSS_COMPILE_ARM32.*error" "$MAKE68" | grep -v "^#" | grep -v "warning" > /dev/null 2>&1; then
             echo "[✗] CROSS_COMPILE_ARM32 错误检查仍然存在"
             FAIL=1
           else
@@ -783,7 +780,6 @@ jobs:
             exit 1
           fi
           echo "✅ 修复·5.4 校验通过，VDSO 全链路阻断完成"
-
       # ==================== 第十一步：全量内核编译 ====================
       - name: 【第十一步】全量内核编译
         id: step11
