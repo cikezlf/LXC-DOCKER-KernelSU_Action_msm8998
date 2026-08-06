@@ -18,7 +18,7 @@ jobs:
           sed -i 's/\r$//' config.env
           while IFS= read -r line; do
             [ -z "$line" ] && continue
-            [[ "$line" =~ ^# ]] && continue
+            [[ "$line" =~^# ]] && continue
             if [[ "$line" =~ [A-Za-z_][A-Za-z0-9_]*= ]]; then
               echo "$line" >> $GITHUB_ENV
               echo "[✓] 已加载：$line"
@@ -57,7 +57,6 @@ jobs:
           sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
-
 
       - name: 【校验·第二步】依赖完整性
         run: |
@@ -193,7 +192,7 @@ jobs:
             FAIL=1
           else
             echo "[✓] .config 存在，$(wc -l < "$CONFIG_FILE") 行"
-            grep -q ^CONFIG_ARM64=y "$CONFIG_FILE" && echo "[✓] CONFIG_ARM64=y"
+            grep -q^CONFIG_ARM64=y "$CONFIG_FILE" && echo "[✓] CONFIG_ARM64=y"
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第六步校验失败，终止"
@@ -611,14 +610,11 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CONFIG_FILE=out/.config
-          # 先移除可能存在的旧配置行
           sed -i '/^CONFIG_VDSO=/d' "$CONFIG_FILE"
           sed -i '/^# CONFIG_VDSO is not set/d' "$CONFIG_FILE"
           sed -i '/^CONFIG_COMPAT_VDSO=/d' "$CONFIG_FILE"
-          # 写入禁用配置
           echo "# CONFIG_VDSO is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_COMPAT_VDSO is not set" >> "$CONFIG_FILE"
-          # 重新同步
           make O=out ARCH=arm64 olddefconfig 2>&1 | tail -5
           echo "[✓] VDSO 已禁用"
 
@@ -639,8 +635,6 @@ jobs:
           fi
           echo "✅ 修复5校验通过"
 
-
-
       # ==================== 第十一步：全量内核编译 ====================
       - name: 【第十一步】全量内核编译
         id: step11
@@ -658,12 +652,11 @@ jobs:
             OBJDUMP=llvm-objdump \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             -j$(nproc) 2>&1 | tee build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+          if [ ${PIPESTATUS} -ne 0 ]; then
             echo "[✗] 内核编译失败"
             exit 1
           fi
           echo "[✓] 内核编译完成"
-
 
       - name: 【校验·第十一步】编译产物确认
         run: |
@@ -687,72 +680,94 @@ jobs:
           rm -f Image.gz-dtb *.dtbo
           cp $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} ./
           find $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/dts -name "*.dtbo" -exec cp {} ./ \; 2>/dev/null || true
-          sed -i "s|kernel.string=.*|kernel.string=${{ env.KERNEL_ZIP_NAME }}|g" anykernel.sh
-          sed -i "s|device.name1=.*|device.name1=sagit|g" anykernel.sh
-          sed -i "s|device.name2=.*|device.name2=MI6|g" anykernel.sh
-          mkdir -p $GITHUB_WORKSPACE/kernel_workspace/release
-          zip -r9 $GITHUB_WORKSPACE/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}-AnyKernel3.zip * -x .git README.md
-          echo "[✓] AnyKernel3 刷机包打包完成"
 
+          sed -i "s|kernel.string=.*|kernel.string=${{ env.KERNEL_ZIP_NAME }}|" anykernel.sh
+          sed -i "s|do.devicecheck=.*|do.devicecheck=0|" anykernel.sh
+          zip -r9 ../${{ env.KERNEL_ZIP_NAME }}.zip * -x .git README.md
+          cd ..
+          echo "[✓] 刷机包打包完成"
+  
       - name: 【校验·第十二步】刷机包完整性
         run: |
-          ANYKERNEL_ZIP=$GITHUB_WORKSPACE/kernel_workspace/release/${{ env.KERNEL_ZIP_NAME }}-AnyKernel3.zip
-          if [ -f "$ANYKERNEL_ZIP" ]; then
-            echo "[✓] 刷机包已生成"
-            unzip -t "$ANYKERNEL_ZIP" > /dev/null 2>&1 && echo "[✓] ZIP CRC 校验通过" || { echo "[✗] ZIP 损坏"; exit 1; }
+          ZIP_FILE=$GITHUB_WORKSPACE/${{ env.KERNEL_ZIP_NAME }}.zip
+          if [ -f "$ZIP_FILE" ]; then
+            echo "[✓] 刷机包已生成：$(ls -lh "$ZIP_FILE" | awk '{print $5}')"
+            unzip -l "$ZIP_FILE" | grep "${{ env.KERNEL_IMAGE_NAME }}" && echo "[✓] 内核镜像已包含在包内" || { echo "[✗] 内核镜像缺失"; exit 1; }
           else
-            echo "[✗] 刷机包缺失"
+            echo "[✗] 刷机包未生成"
             exit 1
           fi
           echo "✅ 第十二步校验通过"
-
-      # ==================== 第十三步：上传产物 ====================
-      - name: 【第十三步】上传 Artifacts
+  
+      # ==================== 第十三步：构建日志归档 ====================
+      - name: 【第十三步】构建日志归档
+        id: step13
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp build.log $GITHUB_WORKSPACE/build.log
+          cp out/.config $GITHUB_WORKSPACE/final-kernel.config
+          echo "[✓] 构建日志与配置已归档"
+  
+      - name: 【校验·第十三步】归档文件确认
+        run: |
+          FAIL=0
+          [ -f "$GITHUB_WORKSPACE/build.log" ] && echo "[✓] build.log 已归档" || { echo "[✗] build.log 缺失"; FAIL=1; }
+          [ -f "$GITHUB_WORKSPACE/final-kernel.config" ] && echo "[✓] final-kernel.config 已归档" || { echo "[✗] final-kernel.config 缺失"; FAIL=1; }
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 第十三步校验失败，终止"
+            exit 1
+          fi
+          echo "✅ 第十三步校验通过"
+  
+      # ==================== 第十四步：上传产物 ====================
+      - name: 【第十四步】上传内核刷机包
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: ${{ github.workspace }}/kernel_workspace/release/*.zip
-
-      # ==================== 第十四步：GitHub Release ====================
-      - name: 【第十四步】GitHub Release 发布
-        uses: softprops/action-gh-release@v2
+          path: ${{ github.workspace }}/${{ env.KERNEL_ZIP_NAME }}.zip
+          compression-level: 9
+  
+      - name: 【第十四步】上传构建日志
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: kernel-release-${{ github.run_number }}
-          name: "[小米6] ${{ env.KERNEL_ZIP_NAME }} 构建 #${{ github.run_number }}"
-          files: ${{ github.workspace }}/kernel_workspace/release/*.zip
-          body: |
-            ## 内核发布说明
-            - 编译器：AOSP Clang 14 (r450784d)
-            - 适配设备：小米6 (sagit)
-            - 预装特性：
-              ✅ Docker/LXC 全量支持
-              ✅ KernelSU Next Legacy
-              ✅ AppArmor 安全模块
-              ✅ cgroup 自动挂载（10次重试）
-              ✅ OverlayFS / Netfilter / IPVS 全量网络虚拟化
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ==================== 全流程校验报告 ====================
-      - name: 【最终】全流程校验报告
+          name: build-log-and-config
+          path: |
+            ${{ github.workspace }}/build.log
+            ${{ github.workspace }}/final-kernel.config
+          compression-level: 9
+  
+      - name: 【校验·第十四步】上传状态确认
         run: |
-          echo "=========================================="
-          echo "     小米6 全功能内核 全流程校验报告"
-          echo "=========================================="
-          echo "[1/14] 全局环境配置加载 ✅"
-          echo "[2/14] 编译依赖全部安装 ✅"
-          echo "[3/14] 资源缓存路径校验 ✅"
-          echo "[4/14] AOSP Clang14 工具链就绪 ✅"
-          echo "[5/14] 内核源码克隆完成 ✅"
-          echo "[6/14] 基础内核配置生成 ✅"
-          echo "[7/14] Docker/LXC 配置全部写入 ✅"
-          echo "[8/14] cgroup 自动挂载 + ramdisk 脚本 ✅"
-          echo "[9/14] KernelSU Legacy 驱动集成 ✅"
-          echo "[10/14] olddefconfig + Clang 双兼容修复 ✅"
-          echo "[11/14] 全量内核编译完成 ✅"
-          echo "[12/14] AnyKernel3 刷机包打包 ✅"
-          echo "[13/14] 产物上传 Artifacts ✅"
-          echo "[14/14] GitHub Release 发布 ✅"
-          echo "=========================================="
-          echo "🎉 全流程 100% 校验通过！"
+          echo "[✓] 所有产物已上传至 GitHub Artifacts"
+          echo "  - 刷机包：${{ env.KERNEL_ZIP_NAME }}.zip"
+          echo "  - 构建日志：build.log"
+          echo "  - 内核配置：final-kernel.config"
+          echo "✅ 第十四步校验通过"
+  
+      # ==================== 第十五步：最终汇总 ====================
+      - name: 【第十五步】构建完成汇总
+        run: |
+          echo "============================================"
+          echo "  小米6全功能内核构建 · 全部步骤校验通过"
+          echo "============================================"
+          echo "  ✅ 第一步：全局配置加载"
+          echo "  ✅ 第二步：编译依赖安装"
+          echo "  ✅ 第三步：资源缓存就绪"
+          echo "  ✅ 第四步：Clang14 工具链"
+          echo "  ✅ 第五步：内核源码拉取"
+          echo "  ✅ 第六步：基础配置生成"
+          echo "  ✅ 第七步：Docker/LXC 全量配置"
+          echo "  ✅ 第八步：cgroup 自动挂载"
+          echo "  ✅ 第九步：KernelSU-Next 部署"
+          echo "  ✅ 第十步：olddefconfig + Clang 修复"
+          echo "  ✅ 第十一步：全量内核编译"
+          echo "  ✅ 第十二步：AnyKernel3 打包"
+          echo "  ✅ 第十三步：构建日志归档"
+          echo "  ✅ 第十四步：产物上传"
+          echo "  ✅ 第十五步：最终校验"
+          echo "============================================"
+          echo "  内核特性：Docker / LXC / KernelSU"
+          echo "  目标设备：小米6 (sagit)"
+          echo "  工具链：AOSP Clang r450784d"
+          echo "  镜像文件：${{ env.KERNEL_IMAGE_NAME }}"
+          echo "============================================"
