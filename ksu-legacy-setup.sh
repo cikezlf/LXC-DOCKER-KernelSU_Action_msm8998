@@ -5,7 +5,8 @@ GKI_ROOT=$(pwd)
 # OWNER="KernelSU-Next"
 # REPO="$OWNER"
 REPO="KernelSU-Next" 
-OWNER="kaho97"
+#OWNER="kaho97"
+OWNER="KernelSU-Next"
 
 display_usage() {
     echo "Usage: $0 [--cleanup | <commit-or-tag>]"
