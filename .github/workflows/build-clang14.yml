@@ -859,8 +859,40 @@ jobs:
           echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
 
 
+      - name: 【新增修复Clang兼容6】移除AppArmor domain.c冗余括号相等比较
+        id: fix-apparmor-parentheses
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          DOMAIN_FILE=security/apparmor/domain.c
+          cp "$DOMAIN_FILE" "$DOMAIN_FILE.bak"
+          sed -i 's/} else if ((ns == profile->ns)) {/} else if (ns == profile->ns) {/' "$DOMAIN_FILE"
+          echo "[✓] domain.c第110行多余括号已移除，消除-Wparentheses-equality告警根源"
 
-      # ==================== 第十一步：编译内核 ====================
+      
+      - name: 【校验·修复6】domain.c修改确认
+        run: |
+          DOMAIN_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/security/apparmor/domain.c
+          FAIL=0
+          if grep -q "} else if (ns == profile->ns) {" "$DOMAIN_FILE"; then
+            echo "[✓] 代码行已修改完成，无多余外层括号"
+          else
+            echo "[✗] 未找到修改后的目标代码，修复失败"
+            FAIL=1
+          fi
+          if grep -q "} else if ((ns == profile->ns)) {" "$DOMAIN_FILE"; then
+            echo "[✗] 原始带多余括号的代码仍然存在，移除不彻底"
+            FAIL=1
+          else
+            echo "[✓] 原始带多余括号的代码已完全清除"
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ domain.c修复校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 修复6校验通过，彻底消除冗余括号导致的致命编译错误"
+
+
+
       - name: 【第十一步 全量重写】内核全量编译
         id: step11
         run: |
@@ -869,37 +901,54 @@ jobs:
           echo "=== 清理历史遗留Werror配置 ==="
           sed -i '/KBUILD_CFLAGS.*-Wno-error=int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
-          echo "[✓] 已清空旧的类型转换告警豁免规则，避免重复写入冲突"
-
-          # -------------------------- 第二层：写入两层强制豁免规则 --------------------------
+          sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
+          echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
+      
+          # -------------------------- 第二层：写入三层强制豁免规则 --------------------------
           echo ""
-          echo "=== 写入两层Werror豁免规则 ==="
+          echo "=== 写入三层Werror豁免规则 ==="
           echo "KBUILD_CFLAGS   += -Wno-error=int-conversion" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-int-conversion" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-error=parentheses-equality" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-parentheses-equality" >> Makefile
           echo "[✓] 第一层规则写入：屏蔽int转指针/指针转int的告警升级为致命错误"
           echo "[✓] 第二层规则写入：完全关闭int-conversion类型转换告警输出"
-
-          # -------------------------- 第三层：校验规则写入有效性 --------------------------
+          echo "[✓] 第三层规则写入：屏蔽冗余括号相等比较的告警升级为致命错误"
+          echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
+      
+          # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
           echo "=== 校验豁免规则写入结果 ==="
           FAIL=0
           if grep -q "KBUILD_CFLAGS   += -Wno-error=int-conversion" Makefile; then
-            echo "[✓] 第一层Werror豁免规则已生效"
+            echo "[✓] 第一层int-conversion错误屏蔽规则已生效"
           else
-            echo "[✗] 第一层Werror豁免规则写入失败，终止构建"
+            echo "[✗] 第一层规则写入失败，终止构建"
             FAIL=1
           fi
           if grep -q "KBUILD_CFLAGS   += -Wno-int-conversion" Makefile; then
-            echo "[✓] 第二层全量告警关闭规则已生效"
+            echo "[✓] 第二层int-conversion告警关闭规则已生效"
           else
-            echo "[✗] 第二层全量告警关闭规则写入失败，终止构建"
+            echo "[✗] 第二层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-error=parentheses-equality" Makefile; then
+            echo "[✓] 第三层parentheses-equality错误屏蔽规则已生效"
+          else
+            echo "[✗] 第三层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-parentheses-equality" Makefile; then
+            echo "[✓] 第四层parentheses-equality告警关闭规则已生效"
+          else
+            echo "[✗] 第四层规则写入失败，终止构建"
             FAIL=1
           fi
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ 两层Werror豁免配置校验完全通过，从根源规避类型转换告警升级为致命错误"
-
+          echo "✅ 四层Werror豁免配置全部校验通过，从根源规避所有已知Clang类型告警升级为致命错误"
+      
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
           echo "=== 初始化编译全局环境变量 ==="
@@ -910,7 +959,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=/usr/bin/arm-linux-gnueabi-
           echo "[✓] 全量编译环境变量初始化完成"
-
+      
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
           echo "=== 启动Clang全量内核编译 ==="
@@ -924,7 +973,7 @@ jobs:
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
           BUILD_EXIT_CODE=$PIPESTATUS
-
+      
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
           echo "=== 全量错误日志分析 ==="
@@ -932,7 +981,8 @@ jobs:
           grep -n -i "undefined reference" full_build_detail.log || echo "[!] 日志中无未定义符号错误"
           grep -n -i "relocation truncated" full_build_detail.log || echo "[!] 日志中无截断重定位错误"
           grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
-
+          grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
+      
           # -------------------------- 第七层：编译结果状态判定 --------------------------
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
@@ -940,7 +990,7 @@ jobs:
             tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功，所有类型转换告警已被两层规则完全屏蔽"
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
 
 
 
