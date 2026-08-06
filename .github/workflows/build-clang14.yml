@@ -54,9 +54,10 @@ jobs:
         id: step2
         run: |
           sudo apt-get update
-          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
+
 
       - name: 【校验·第二步】依赖完整性
         run: |
@@ -565,12 +566,14 @@ jobs:
             STRIP=llvm-strip \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             -j$(nproc) 2>&1 | tee build.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "[✗] 内核编译失败"
             exit 1
           fi
           echo "[✓] 内核编译完成"
+
 
       - name: 【校验·第十一步】编译产物确认
         run: |
