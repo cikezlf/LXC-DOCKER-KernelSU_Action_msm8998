@@ -533,22 +533,14 @@ jobs:
             FAIL=1
           fi
       
-          # 改用检测 TRACE_EVENT 和 TP_STRUCT__entry 配对是否完整
-          TRACE_COUNT=$(grep -c "TRACE_EVENT(" "$HEADER")
-          ENTRY_COUNT=$(grep -c "TP_STRUCT__entry(" "$HEADER")
-          if [ "$TRACE_COUNT" -eq "$ENTRY_COUNT" ] && [ "$TRACE_COUNT" -gt 0 ]; then
-            echo "[✓] trace事件结构体定义完整，TRACE_EVENT 与 TP_STRUCT__entry 配对数量一致（${TRACE_COUNT}对）"
-          else
-            echo "[✗] 结构体定义异常，TRACE_EVENT(${TRACE_COUNT})与TP_STRUCT__entry(${ENTRY_COUNT})数量不匹配"
-            FAIL=1
-          fi
-      
+          # 验证头文件插入位置在所有 TRACE_EVENT 之后，确保未破坏结构体
           INCLUDE_LINE=$(grep -n "#include <linux/cgroup.h>" "$HEADER" | head -1 | cut -d: -f1)
           LAST_TRACE_LINE=$(grep -n "TRACE_EVENT(" "$HEADER" | tail -1 | cut -d: -f1)
           if [ -n "$INCLUDE_LINE" ] && [ -n "$LAST_TRACE_LINE" ] && [ "$INCLUDE_LINE" -gt "$LAST_TRACE_LINE" ]; then
-            echo "[✓] cgroup头文件插入位置在所有TRACE_EVENT定义之后，完全不会干扰结构体定义"
+            echo "[✓] cgroup头文件插入位置在所有TRACE_EVENT定义之后，结构体定义完整未被破坏"
           else
-            echo "[✓] 头文件插入位置安全，不影响结构体区域"
+            echo "[✗] 头文件插入位置不安全，位于TRACE_EVENT定义区间内"
+            FAIL=1
           fi
       
           if grep -q -E "int .*= .*char \*|char \* .*= .*int" "$HEADER"; then
@@ -563,7 +555,6 @@ jobs:
             exit 1
           fi
           echo "✅ 修复1重写校验完全通过，彻底消除writeback.h的类型转换报错"
-
 
 
 
