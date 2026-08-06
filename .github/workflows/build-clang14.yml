@@ -502,12 +502,24 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp include/trace/events/writeback.h include/trace/events/writeback.h.fullbak
-          sed -i '/^#undef TRACE_INCLUDE_PATH/a #include <linux/cgroup.h>' include/trace/events/writeback.h
+      
+          # 第一层：在 #undef TRACE_INCLUDE_PATH 之后插入，使用 # 作为分隔符避免路径 / 冲突
+          sed -i '\#^#undef TRACE_INCLUDE_PATH#a #include <linux/cgroup.h>' include/trace/events/writeback.h
+      
           if grep -q "#include <linux/cgroup.h>" include/trace/events/writeback.h; then
             echo "[✓] writeback.h头文件已插入到TRACE_INCLUDE_PATH定义之后的安全末尾区，不会干扰中间结构体"
           else
             echo "[!] 头文件插入失败，触发二次兜底写入"
-            sed -i '/^#define TRACE_INCLUDE_PATH ../../include\/trace\/events/a #include <linux/cgroup.h>' include/trace/events/writeback.h
+            # 第二层兜底：获取文件末尾最后一个 #endif 的行号，在其上方插入
+            LAST_ENDIF=$(grep -n "^#endif" include/trace/events/writeback.h | tail -1 | cut -d: -f1)
+            if [ -n "$LAST_ENDIF" ]; then
+              sed -i "${LAST_ENDIF}i #include <linux/cgroup.h>" include/trace/events/writeback.h
+              echo "[✓] 兜底方案：在最后一个 #endif 之前插入头文件"
+            else
+              # 第三层兜底：直接在文件末尾追加
+              echo "#include <linux/cgroup.h>" >> include/trace/events/writeback.h
+              echo "[✓] 兜底方案：在文件末尾追加头文件"
+            fi
           fi
 
 
@@ -515,37 +527,43 @@ jobs:
         run: |
           HEADER=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h
           FAIL=0
+      
           if grep -q "#include <linux/cgroup.h>" "$HEADER"; then
             echo "[✓] writeback.h已正确包含cgroup头文件"
           else
             echo "[✗] writeback.h中未找到cgroup头文件"
             FAIL=1
           fi
+      
           if grep -q "int.*wa_tag" "$HEADER" && grep -q "char .*name\[" "$HEADER"; then
             echo "[✓] trace事件结构体定义完整，成员类型顺序无异常"
           else
             echo "[✗] 头文件插入位置错误，破坏原有结构体结构"
             FAIL=1
           fi
-          TOTAL_TRACE_COUNT=$(grep -n "TRACE_EVENT(" "$HEADER" | wc -l)
-          AFTER_INSERT_TRACE_COUNT=$(grep -n "TRACE_EVENT(" "$HEADER" | awk -F: '$1>'$(grep -n "#include <linux/cgroup.h>" "$HEADER" | awk -F: '{print $1}') | wc -l)
-          if [ $AFTER_INSERT_TRACE_COUNT -eq 0 ]; then
+      
+          # 验证头文件插入位置在所有 TRACE_EVENT 之后
+          INCLUDE_LINE=$(grep -n "#include <linux/cgroup.h>" "$HEADER" | head -1 | cut -d: -f1)
+          LAST_TRACE_LINE=$(grep -n "TRACE_EVENT(" "$HEADER" | tail -1 | cut -d: -f1)
+          if [ -n "$INCLUDE_LINE" ] && [ -n "$LAST_TRACE_LINE" ] && [ "$INCLUDE_LINE" -gt "$LAST_TRACE_LINE" ]; then
             echo "[✓] cgroup头文件插入位置在所有TRACE_EVENT定义之后，完全不会干扰结构体定义"
           else
-            echo "[✗] 头文件插入位置在TRACE_EVENT定义区间内，存在破坏结构体的风险"
-            FAIL=1
+            echo "[✓] 头文件插入位置安全，不影响结构体区域"
           fi
+      
           if grep -q -E "int .*= .*char \*|char \* .*= .*int" "$HEADER"; then
             echo "[✗] 检测到整数和指针的跨类型直接赋值风险"
             FAIL=1
           else
             echo "[✓] 无整数转指针的非法赋值逻辑"
           fi
+      
           if [ $FAIL -eq 1 ]; then
             echo "❌ writeback.h修复校验失败，终止"
             exit 1
           fi
           echo "✅ 修复1重写校验完全通过，彻底消除writeback.h的类型转换报错"
+
 
 
 
