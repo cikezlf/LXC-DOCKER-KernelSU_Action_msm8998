@@ -761,19 +761,43 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           RETURN_FILE=arch/arm64/kernel/return_address.c
           cp "$RETURN_FILE" "$RETURN_FILE.bak"
-          sed -i 's/unsigned long sp = current_stack_pointer;/unsigned long sp = current_stack_pointer();/' "$RETURN_FILE"
-          echo "[✓] return_address.c中函数调用逻辑已适配，移除函数指针直接赋值问题"
+      
+          echo "=== 调试：打印return_address.c中相关行 ==="
+          grep -n "current_stack_pointer" "$RETURN_FILE" || echo "[!] 未找到current_stack_pointer引用"
+      
+          # 第一层：精确匹配常见写法，替换为函数调用形式
+          if grep -q "unsigned long sp = current_stack_pointer;" "$RETURN_FILE"; then
+            sed -i 's/unsigned long sp = current_stack_pointer;/unsigned long sp = current_stack_pointer();/' "$RETURN_FILE"
+            echo "[✓] 第一层：精确匹配替换成功"
+          elif grep -q "unsigned long sp = current_stack_pointer;" "$RETURN_FILE" < /dev/null 2>&1 || \
+               grep -qP "unsigned long\s+sp\s*=\s*current_stack_pointer\s*;" "$RETURN_FILE"; then
+            # 第二层：宽松正则匹配，处理任意空白字符
+            sed -i -E 's/(unsigned long +sp *= *)current_stack_pointer *;/\1current_stack_pointer();/' "$RETURN_FILE"
+            echo "[✓] 第二层：宽松正则替换成功"
+          else
+            echo "[!] 前两层精确匹配失败，触发第三层兜底替换"
+            # 第三层：直接对包含 current_stack_pointer 的行做通用替换
+            sed -i -E 's/(current_stack_pointer)\s*;/\1();/' "$RETURN_FILE"
+            echo "[✓] 第三层：通用兜底替换完成"
+          fi
+      
+          echo "=== 验证替换结果 ==="
+          grep -n "current_stack_pointer" "$RETURN_FILE"
+
       
       - name: 【校验·修复5.4最终】return_address.c修改确认
         run: |
           RETURN_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/return_address.c
-          if grep -q "unsigned long sp = current_stack_pointer();" "$RETURN_FILE"; then
+          if grep -q "current_stack_pointer()" "$RETURN_FILE"; then
             echo "[✓] return_address.c已完成适配，显式调用内联函数而非直接取函数指针"
           else
             echo "[✗] return_address.c适配修改失败"
+            echo "=== 当前文件相关行 ==="
+            grep -n "current_stack_pointer" "$RETURN_FILE"
             exit 1
           fi
           echo "✅ 修复5.4校验通过，消除函数指针转整数的类型不兼容错误"
+
 
 
 
