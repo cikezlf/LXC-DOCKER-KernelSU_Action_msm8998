@@ -501,32 +501,43 @@ jobs:
         id: fix-writeback-rework
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp include/trace/events/writeback.h include/trace/events/writeback.h.bak
-          sed -i '1d' include/trace/events/writeback.h
+          cp include/trace/events/writeback.h include/trace/events/writeback.h.fullbak
           sed -i '/#undef TRACE_INCLUDE_PATH/a #include <linux/cgroup.h>' include/trace/events/writeback.h
-          grep -q "#include <linux/cgroup.h>" include/trace/events/writeback.h && echo "[✓] writeback.h头文件已插入到正确位置" || { echo "[✗] 修复失败"; exit 1; }
+          if grep -q "#include <linux/cgroup.h>" include/trace/events/writeback.h; then
+            echo "[✓] writeback.h头文件已插入到TRACE_INCLUDE_PATH定义之后的安全位置"
+          else
+            echo "[✗] 头文件插入失败，尝试二次兜底写入"
+            sed -i '2i #include <linux/cgroup.h>' include/trace/events/writeback.h
+          fi
 
       - name: 【校验·修复1重写】writeback.h结构完整性确认
         run: |
           HEADER=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h
           FAIL=0
           if grep -q "#include <linux/cgroup.h>" "$HEADER"; then
-            echo "[✓] writeback.h已包含cgroup头文件"
+            echo "[✓] writeback.h已正确包含cgroup头文件"
           else
-            echo "[✗] writeback.h未找到cgroup头文件"
+            echo "[✗] writeback.h中未找到cgroup头文件"
             FAIL=1
           fi
-          if grep -q "int.*wa_tag" "$HEADER" && grep -q "char.*.*name\[" "$HEADER"; then
-            echo "[✓] trace事件结构体定义完整，无成员类型赋值错误"
+          if grep -q "int.*wa_tag" "$HEADER" && grep -q "char.*name\[" "$HEADER"; then
+            echo "[✓] trace事件结构体定义完整，成员类型顺序无异常"
           else
-            echo "[✗] 头文件插入破坏原有结构体结构"
+            echo "[✗] 头文件插入位置错误，破坏原有结构体结构"
             FAIL=1
+          fi
+          if grep -q -E "int.*=.*char \*|char \*.*=.*int" "$HEADER"; then
+            echo "[✗] 检测到整数和指针的跨类型直接赋值风险"
+            FAIL=1
+          else
+            echo "[✓] 无整数转指针的非法赋值逻辑"
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ writeback.h修复校验失败，终止"
             exit 1
           fi
-          echo "✅ 修复1重写校验通过，消除整数转指针的类型不兼容错误"
+          echo "✅ 修复1重写校验完全通过，彻底消除writeback.h的类型转换报错"
+
 
 
       - name: 【修复Clang兼容2】AppArmor crypto.c 变长数组
@@ -732,7 +743,7 @@ jobs:
           cp "$RETURN_FILE" "$RETURN_FILE.bak"
           sed -i 's/unsigned long sp = current_stack_pointer;/unsigned long sp = current_stack_pointer();/' "$RETURN_FILE"
           echo "[✓] return_address.c中函数调用逻辑已适配，移除函数指针直接赋值问题"
-
+      
       - name: 【校验·修复5.4】return_address.c修改确认
         run: |
           RETURN_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/return_address.c
@@ -743,6 +754,7 @@ jobs:
             exit 1
           fi
           echo "✅ 修复5.4校验通过，消除函数指针转整数的类型不兼容错误"
+
 
 
 
