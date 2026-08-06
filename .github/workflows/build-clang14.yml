@@ -606,6 +606,38 @@ jobs:
           fi
           echo "✅ 修复4校验通过"
 
+      - name: 【修复Clang兼容5】禁用 VDSO
+        id: fix-vdso
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          CONFIG_FILE=out/.config
+          # 先移除可能存在的旧配置行
+          sed -i '/^CONFIG_VDSO=/d' "$CONFIG_FILE"
+          sed -i '/^# CONFIG_VDSO is not set/d' "$CONFIG_FILE"
+          sed -i '/^CONFIG_COMPAT_VDSO=/d' "$CONFIG_FILE"
+          # 写入禁用配置
+          echo "# CONFIG_VDSO is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_COMPAT_VDSO is not set" >> "$CONFIG_FILE"
+          # 重新同步
+          make O=out ARCH=arm64 olddefconfig 2>&1 | tail -5
+          echo "[✓] VDSO 已禁用"
+
+      - name: 【校验·修复5】VDSO 禁用确认
+        run: |
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          if grep -q "^CONFIG_VDSO=y" "$CONFIG_FILE" 2>/dev/null; then
+            echo "[✗] VDSO 仍为启用状态"
+            exit 1
+          else
+            echo "[✓] VDSO 已确认禁用"
+          fi
+          if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE" 2>/dev/null; then
+            echo "[✗] COMPAT_VDSO 仍为启用状态"
+            exit 1
+          else
+            echo "[✓] COMPAT_VDSO 已确认禁用"
+          fi
+          echo "✅ 修复5校验通过"
 
 
 
