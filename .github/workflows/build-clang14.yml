@@ -520,7 +520,7 @@ jobs:
           fi
 
 
-
+      
       - name: 【校验·修复1最终重写】writeback.h结构完整性确认
         run: |
           HEADER=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h
@@ -533,10 +533,13 @@ jobs:
             FAIL=1
           fi
       
-          if grep -q "int.*wa_tag" "$HEADER" && grep -q -E "char .*name(\[|;|\*)" "$HEADER"; then
-            echo "[✓] trace事件结构体定义完整，成员类型顺序无异常"
+          # 改用检测 TRACE_EVENT 和 TP_STRUCT__entry 配对是否完整
+          TRACE_COUNT=$(grep -c "TRACE_EVENT(" "$HEADER")
+          ENTRY_COUNT=$(grep -c "TP_STRUCT__entry(" "$HEADER")
+          if [ "$TRACE_COUNT" -eq "$ENTRY_COUNT" ] && [ "$TRACE_COUNT" -gt 0 ]; then
+            echo "[✓] trace事件结构体定义完整，TRACE_EVENT 与 TP_STRUCT__entry 配对数量一致（${TRACE_COUNT}对）"
           else
-            echo "[✗] 头文件插入位置错误，破坏原有结构体结构"
+            echo "[✗] 结构体定义异常，TRACE_EVENT(${TRACE_COUNT})与TP_STRUCT__entry(${ENTRY_COUNT})数量不匹配"
             FAIL=1
           fi
       
@@ -560,6 +563,7 @@ jobs:
             exit 1
           fi
           echo "✅ 修复1重写校验完全通过，彻底消除writeback.h的类型转换报错"
+
 
 
 
