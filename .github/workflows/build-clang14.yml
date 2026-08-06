@@ -859,85 +859,92 @@ jobs:
           fi
           echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
 
-      - name: 【新增修复Clang兼容7终极版】全量移除msm_sensor.c 32位fusion_id遗留IOCTL代码块
+      - name: 【新增修复Clang兼容7终极版】全量清除msm_sensor.c所有32位兼容代码
         id: fix-msm-sensor-ultimate
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
           cp "$SENSOR_FILE" "$SENSOR_FILE.bak.final"
-          
-          echo "=== 调试：打印当前msm_sensor.c中32位相关原始代码行 ==="
-          grep -n "sensorb_info_fusion_id32\|data32\|compat_ptr" "$SENSOR_FILE" || echo "[!] 无相关遗留代码，直接跳过清理"
-          
-          # 第一层：精准定位整个32位兼容IOCTL代码块的起始行和结束行，全量删除
-          START_LINE=$(grep -n "struct sensorb_info_fusion_id32 \*data32" "$SENSOR_FILE" | head -1 | cut -d: -f1)
-          if [ -n "$START_LINE" ]; then
-            echo "[✓] 定位到32位代码块起始行：$START_LINE"
-            # 向后扫描匹配完整代码块的结尾处的return/break语句作为结束标记
-            sed -i "${START_LINE},/return 0;/d" "$SENSOR_FILE"
-            echo "[✓] 全量删除32位遗留IOCTL代码块成功"
-          fi
-          
-          # 第二层：兜底清理所有零散残留的相关变量声明、成员访问代码
+
+          echo "=== 调试：打印当前msm_sensor.c中所有32位相关原始代码行 ==="
+          grep -n "sensorb_cfg_data32\|sensorb_info_fusion_id32\|compat_ptr\|_32" "$SENSOR_FILE" || echo "[!] 无相关遗留代码"
+
+          # 第一层：全局替换所有compat_ptr调用为64位原生指针转换
+          sed -i 's/compat_ptr(/(void __user *)(uintptr_t)(/g' "$SENSOR_FILE"
+          echo "[✓] 所有compat_ptr()调用已全局替换为64位原生指针转换"
+
+          # 第二层：全局替换所有32位结构体类型为64位原生类型
+          sed -i 's/struct sensorb_cfg_data32/struct sensorb_cfg_data/g' "$SENSOR_FILE"
+          echo "[✓] 所有sensorb_cfg_data32类型已替换为64位原生sensorb_cfg_data"
+
+          # 第三层：清理所有带32后缀的变量名，替换为64位原生变量名
+          sed -i 's/f_conf_array32/f_conf_array/g' "$SENSOR_FILE"
+          sed -i 's/conf_array32/conf_array/g' "$SENSOR_FILE"
+          sed -i 's/write_config32/write_config/g' "$SENSOR_FILE"
+          sed -i 's/stop_setting32/stop_setting/g' "$SENSOR_FILE"
+          echo "[✓] 所有32后缀变量名已替换为64位原生变量名"
+
+          # 第四层：清理所有残留的32位结构体前向声明
           sed -i '/struct sensorb_info_fusion_id32/d' "$SENSOR_FILE"
-          sed -i '/data32->data_buffer/d' "$SENSOR_FILE"
-          sed -i '/compat_ptr\s*()/d' "$SENSOR_FILE"
-          echo "[✓] 兜底清理所有零散32位遗留代码完成"
-          
-          # 第三层：在对应相机fusion IOCTL分支写入64位原生空返回逻辑，保证控制流完整不悬空
-          sed -i '/case.*CAMERA_SENSOR_FUSION_INFO:/a \                return 0;' "$SENSOR_FILE"
-          echo "[✓] 64位原生空返回逻辑已写入IOCTL分支，控制流无悬空"
+          echo "[✓] 32位不完整结构体声明已清除"
+
+          echo "[✓] 终极修复完成，所有32位兼容代码已全量转换为64位原生逻辑"
 
 
 
-      - name: 【校验·修复7终极版】msm_sensor.c完全适配确认
+      - name: 【校验·修复7终极版】msm_sensor.c全量清理确认
         run: |
           SENSOR_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
           FAIL=0
-          
+
           # 校验1：32位不完整结构体声明完全清除
           if grep -q "struct sensorb_info_fusion_id32" "$SENSOR_FILE"; then
             echo "[✗] 检测到残留的32位不完整结构体前向声明"
-            echo "=== 残留代码行 ==="
             grep -n "struct sensorb_info_fusion_id32" "$SENSOR_FILE"
             FAIL=1
           else
             echo "[✓] 32位不完整结构体声明已完全清除"
           fi
-          
-          # 校验2：32位data32指针及成员访问逻辑完全清除
-          if grep -q "data32" "$SENSOR_FILE"; then
-            echo "[✗] 检测到残留的32位data32变量访问逻辑"
-            echo "=== 残留代码行 ==="
-            grep -n "data32" "$SENSOR_FILE"
+
+          # 校验2：32位结构体类型sensorb_cfg_data32完全清除
+          if grep -q "sensorb_cfg_data32" "$SENSOR_FILE"; then
+            echo "[✗] 检测到残留的sensorb_cfg_data32类型引用"
+            grep -n "sensorb_cfg_data32" "$SENSOR_FILE"
             FAIL=1
           else
-            echo "[✓] 32位data32相关逻辑已完全清除"
+            echo "[✓] sensorb_cfg_data32类型引用已完全清除"
           fi
-          
-          # 校验3：compat_ptr残留调用完全清除
+
+          # 校验3：compat_ptr函数调用完全清除
           if grep -q "compat_ptr(" "$SENSOR_FILE"; then
-            echo "[✗] 检测到残留的compat_ptr函数调用，移除不彻底"
-            echo "=== 残留代码行 ==="
+            echo "[✗] 检测到残留的compat_ptr函数调用"
             grep -n "compat_ptr(" "$SENSOR_FILE"
             FAIL=1
           else
-            echo "[✓] 所有compat_ptr调用已完全清除，无残留"
+            echo "[✓] 所有compat_ptr调用已完全清除"
           fi
-          
-          # 校验4：64位返回逻辑已正确写入，控制流完整
-          if grep -A2 "CAMERA_SENSOR_FUSION_INFO" "$SENSOR_FILE" | grep -q "return 0;"; then
-            echo "[✓] 64位原生空返回逻辑已正确写入对应IOCTL分支，控制流完整无悬空"
-          else
-            echo "[✗] 64位IOCTL分支逻辑写入失败，存在悬空控制流风险"
+
+          # 校验4：32后缀变量名完全清除
+          if grep -qE "(f_conf_array32|conf_array32|write_config32|stop_setting32)" "$SENSOR_FILE"; then
+            echo "[✗] 检测到残留的32后缀变量名"
+            grep -nE "(f_conf_array32|conf_array32|write_config32|stop_setting32)" "$SENSOR_FILE"
             FAIL=1
+          else
+            echo "[✓] 所有32后缀变量名已完全清除"
           fi
-          
+
+          # 校验5：64位指针转换逻辑已正确写入
+          if grep -q "(void __user \*)(uintptr_t)" "$SENSOR_FILE"; then
+            echo "[✓] 64位原生指针转换逻辑已正确写入"
+          else
+            echo "[!] 文件中无compat_ptr调用场景，无需额外转换逻辑"
+          fi
+
           if [ $FAIL -eq 1 ]; then
             echo "❌ msm_sensor.c终极适配校验失败，终止构建"
             exit 1
           fi
-          echo "✅ 修复7终极版校验通过，彻底消除incomplete definition of type编译错误"
+          echo "✅ 修复7终极版校验通过，彻底消除32位兼容层所有残留代码"
 
 
 
@@ -1085,6 +1092,9 @@ jobs:
           grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
           grep -n -i "implicit-function-declaration" full_build_detail.log || echo "[!] 日志中无隐式函数声明相关告警"
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
+          grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
+          grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
+          grep -n -i "compat_ptr" full_build_detail.log || echo "[!] 日志中无compat_ptr相关错误"
 
       
           # -------------------------- 第七层：编译结果状态判定 --------------------------
