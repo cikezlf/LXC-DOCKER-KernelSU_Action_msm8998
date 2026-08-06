@@ -207,32 +207,46 @@ jobs:
         id: disable-vdso32
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i 's/^CONFIG_COMPAT_VDSO=y/# CONFIG_COMPAT_VDSO is not set/' out/.config
-          sed -i 's/^CONFIG_VDSO32=y/# CONFIG_VDSO32 is not set/' out/.config
+          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
+          sed -i '/CONFIG_VDSO32/d' out/.config
+          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
+          echo "# CONFIG_VDSO32 is not set" >> out/.config
+          sed -i 's/CONFIG_64BIT_VDSO_COMPAT=y/# CONFIG_64BIT_VDSO_COMPAT is not set/g' out/.config
           make O=out ARCH=arm64 olddefconfig
-          echo "[✓] VDSO32 已禁用，移除32位VDSO编译依赖"
+          sed -i '/CONFIG_VDSO32/d' out/.config
+          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
+          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
+          echo "# CONFIG_VDSO32 is not set" >> out/.config
+          echo "[✓] VDSO32 全链路禁用完成，切断Kbuild自动恢复逻辑"
+
       
       - name: 校验 VDSO32禁用确认
         run: |
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           FAIL=0
-          if grep -q "# CONFIG_COMPAT_VDSO is not set" "$CONFIG_FILE"; then
-            echo "[✓] CONFIG_COMPAT_VDSO 已禁用"
-          else
-            echo "[✗] CONFIG_COMPAT_VDSO 未正确禁用"
+          if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE"; then
+            echo "[✗] CONFIG_COMPAT_VDSO 被自动恢复为开启状态"
             FAIL=1
+          else
+            echo "[✓] CONFIG_COMPAT_VDSO 已永久禁用"
           fi
-          if grep -q "# CONFIG_VDSO32 is not set" "$CONFIG_FILE"; then
-            echo "[✓] CONFIG_VDSO32 已禁用"
-          else
-            echo "[✗] CONFIG_VDSO32 未正确禁用"
+          if grep -q "^CONFIG_VDSO32=y" "$CONFIG_FILE"; then
+            echo "[✗] CONFIG_VDSO32 被自动恢复为开启状态"
             FAIL=1
+          else
+            echo "[✓] CONFIG_VDSO32 已永久禁用"
+          fi
+          VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/Makefile
+          if grep -q "vdso32" "$VDSO_MAKEFILE"; then
+            sed -i '/vdso32/d' "$VDSO_MAKEFILE"
+            echo "[✓] 已从内核Makefile移除vdso32编译规则，彻底跳过32位构建分支"
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ VDSO32禁用校验失败，终止"
             exit 1
           fi
           echo "✅ VDSO32 适配校验通过，完全消除32位链接冲突"
+
 
 
 
