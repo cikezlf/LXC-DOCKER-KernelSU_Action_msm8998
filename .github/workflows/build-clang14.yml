@@ -496,31 +496,29 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] olddefconfig 同步完成"
-
+      
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
         id: fix-writeback-final
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp include/trace/events/writeback.h include/trace/events/writeback.h.fullbak
       
-          # 第一层：在 #undef TRACE_INCLUDE_PATH 之后插入，使用 # 作为分隔符避免路径 / 冲突
-          sed -i '\#^#undef TRACE_INCLUDE_PATH#a #include <linux/cgroup.h>' include/trace/events/writeback.h
+          sed -i '\|^#undef TRACE_INCLUDE_PATH|a #include <linux/cgroup.h>' include/trace/events/writeback.h
       
           if grep -q "#include <linux/cgroup.h>" include/trace/events/writeback.h; then
-            echo "[✓] writeback.h头文件已插入到TRACE_INCLUDE_PATH定义之后的安全末尾区，不会干扰中间结构体"
+            echo "[✓] writeback.h头文件已插入到TRACE_INCLUDE_PATH定义之后的安全末尾区"
           else
             echo "[!] 头文件插入失败，触发二次兜底写入"
-            # 第二层兜底：获取文件末尾最后一个 #endif 的行号，在其上方插入
             LAST_ENDIF=$(grep -n "^#endif" include/trace/events/writeback.h | tail -1 | cut -d: -f1)
             if [ -n "$LAST_ENDIF" ]; then
               sed -i "${LAST_ENDIF}i #include <linux/cgroup.h>" include/trace/events/writeback.h
               echo "[✓] 兜底方案：在最后一个 #endif 之前插入头文件"
             else
-              # 第三层兜底：直接在文件末尾追加
               echo "#include <linux/cgroup.h>" >> include/trace/events/writeback.h
               echo "[✓] 兜底方案：在文件末尾追加头文件"
             fi
           fi
+
 
 
       - name: 【校验·修复1最终重写】writeback.h结构完整性确认
@@ -542,7 +540,6 @@ jobs:
             FAIL=1
           fi
       
-          # 验证头文件插入位置在所有 TRACE_EVENT 之后
           INCLUDE_LINE=$(grep -n "#include <linux/cgroup.h>" "$HEADER" | head -1 | cut -d: -f1)
           LAST_TRACE_LINE=$(grep -n "TRACE_EVENT(" "$HEADER" | tail -1 | cut -d: -f1)
           if [ -n "$INCLUDE_LINE" ] && [ -n "$LAST_TRACE_LINE" ] && [ "$INCLUDE_LINE" -gt "$LAST_TRACE_LINE" ]; then
