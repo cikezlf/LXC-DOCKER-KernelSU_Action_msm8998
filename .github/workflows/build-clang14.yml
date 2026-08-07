@@ -825,41 +825,66 @@ jobs:
           echo "--- 结束 ---"
 
       
-      - name: 【兜底修复5】修复sucompat.c的strncpy_from_user_nofault和ksys_close高版本函数依赖（4.4内核兼容）
-        id: fix-sucompat-nofault-ksys-backport
+      - name: 【兜底修复5-最终版】修复util.h的ksys_close和sucompat.c的strncpy_from_user_nofault高版本函数依赖
+        id: fix-ksys-close-and-nofault-final
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          TARGET_FILE=drivers/kernelsu/feature/sucompat.c
       
-          echo "--- 修复前sucompat.c中高版本函数引用 ---"
-          grep -n -E "(strncpy_from_user_nofault|ksys_close)" $TARGET_FILE || echo "未找到对应函数引用"
-          echo "--- 结束 ---"
+          echo "========== 修复1：util.h中ksu_close_fd宏 =========="
+          UTIL_FILE=drivers/kernelsu/include/util.h
+          echo "--- 修复前 ---"
+          grep -n "ksu_close_fd\|ksys_close" $UTIL_FILE
+          echo "--- 执行替换 ---"
       
-          # 在文件头部（最后一个include之后）插入兼容宏定义
-          LAST_INCLUDE_LINE=$(grep -n '#include' $TARGET_FILE | tail -1 | cut -d: -f1)
+          sed -i 's/#define ksu_close_fd ksys_close/#define ksu_close_fd sys_close/' $UTIL_FILE
       
-          printf '\n/* 4.4内核兼容：strncpy_from_user_nofault 回退到 strncpy_from_user */\n' >> $TARGET_FILE
-          printf '#ifndef strncpy_from_user_nofault\n' >> $TARGET_FILE
-          printf '#define strncpy_from_user_nofault(dst, src, count) strncpy_from_user(dst, src, count)\n' >> $TARGET_FILE
-          printf '#endif\n' >> $TARGET_FILE
-          printf '\n/* 4.4内核兼容：ksys_close 回退到 sys_close */\n' >> $TARGET_FILE
-          printf '#ifndef ksys_close\n' >> $TARGET_FILE
-          printf '#define ksys_close(fd) sys_close(fd)\n' >> $TARGET_FILE
-          printf '#endif\n' >> $TARGET_FILE
-          echo "[✓] 已追加strncpy_from_user_nofault和ksys_close的4.4内核兼容宏定义"
+          echo "--- 修复后 ---"
+          grep -n "ksu_close_fd\|ksys_close" $UTIL_FILE
       
-          # 校验：兼容宏写入生效
-          if grep -q "strncpy_from_user_nofault" $TARGET_FILE && grep -q "ksys_close" $TARGET_FILE; then
-            echo "[✅ 校验通过] 两个高版本函数的4.4内核兼容宏已正确写入"
+          if grep -q "#define ksu_close_fd sys_close" $UTIL_FILE; then
+            echo "[✅] util.h修复成功"
           else
-            echo "[❌ 校验失败] 兼容宏写入失败"
+            echo "[❌] util.h修复失败，当前内容："
+            cat -n $UTIL_FILE | grep -E "(ksu_close|ksys_close)"
             exit 1
           fi
       
-          echo "--- 修复后sucompat.c兼容宏区域 ---"
-          grep -n -E "(strncpy_from_user_nofault|ksys_close)" $TARGET_FILE
-          echo "--- 结束 ---"
-
+          echo ""
+          echo "========== 修复2：sucompat.c中strncpy_from_user_nofault =========="
+          SUCOMPAT_FILE=drivers/kernelsu/feature/sucompat.c
+          echo "--- 修复前 ---"
+          grep -n "strncpy_from_user_nofault" $SUCOMPAT_FILE || echo "当前无此引用"
+          echo "--- 所有include行 ---"
+          grep -n "#include" $SUCOMPAT_FILE
+          echo "--- 执行插入 ---"
+      
+          LAST_INCLUDE=$(grep -n '#include' $SUCOMPAT_FILE | tail -1 | cut -d: -f1)
+          echo "最后一个#include在第${LAST_INCLUDE}行"
+      
+          # 使用printf生成插入内容，彻底规避YAML |块中的转义问题
+          printf '\n/* 4.4内核兼容：strncpy_from_user_nofault -> strncpy_from_user */\n' > /tmp/sucompat_patch.txt
+          printf '#define strncpy_from_user_nofault(dst, src, count) strncpy_from_user(dst, src, count)\n' >> /tmp/sucompat_patch.txt
+      
+          # 使用sed的r命令读取文件内容插入到指定行之后
+          sed -i "${LAST_INCLUDE}r /tmp/sucompat_patch.txt" $SUCOMPAT_FILE
+      
+          echo "--- 修复后 ---"
+          grep -n "strncpy_from_user_nofault" $SUCOMPAT_FILE
+      
+          if grep -q "#define strncpy_from_user_nofault" $SUCOMPAT_FILE; then
+            echo "[✅] sucompat.c修复成功"
+          else
+            echo "[❌] sucompat.c修复失败"
+            exit 1
+          fi
+      
+          rm -f /tmp/sucompat_patch.txt
+      
+          echo ""
+          echo "========== 最终校验 =========="
+          echo "[✓] util.h: $(grep 'ksu_close_fd' $UTIL_FILE)"
+          echo "[✓] sucompat.c: $(grep 'strncpy_from_user_nofault' $SUCOMPAT_FILE | head -1)"
+          echo "[✓] 所有高版本函数兼容修复已完成"
 
 
 
