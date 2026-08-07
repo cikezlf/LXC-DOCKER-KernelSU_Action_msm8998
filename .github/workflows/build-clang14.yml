@@ -466,7 +466,6 @@ jobs:
             exit 1
           fi
           echo "✅ 第八步续校验通过"
-
       # ==================== 第九步：KernelSU-Next ====================
       - name: 【第九步】部署 KernelSU-Next Legacy
         id: step9
@@ -513,7 +512,104 @@ jobs:
           fi
           echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
 
+      # ==================== 新增：KernelSU-Next syscall_fn_t缺失类型修复 ====================
+      - name: 【修复KernelSU 1】新增syscall_fn_t缺失类型定义，彻底解决类型未定义报错
+        id: fix-ksu-syscall-type
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
+          
+          # 先备份原始头文件，保证可回溯
+          cp "$KSU_HOOK_HEADER" "${KSU_HOOK_HEADER}.bak.origin"
+          echo "[✓] syscall_hook.h原始备份已生成"
+          
+          # 头文件最顶部插入缺失的syscall_fn_t类型定义，确保后续所有引用点都能识别
+          sed -i '1i\typedef long (*syscall_fn_t)(const struct pt_regs *);' "$KSU_HOOK_HEADER"
+          echo "[✓] 已在syscall_hook.h头部插入syscall_fn_t函数指针类型定义"
+          
+          # 基础写入校验
+          grep "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER" > /dev/null
+          if [ $? -eq 0 ]; then
+            echo "[✅ 校验通过] syscall_fn_t类型定义已成功写入头文件"
+          else
+            echo "[❌ 校验失败] syscall_fn_t类型定义未写入成功，终止构建"
+            exit 1
+          fi
 
+      - name: 【校验KernelSU 1】类型定义位置有效性确认
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
+          
+          # 校验类型定义行号必须早于所有syscall_fn_t引用行
+          DEF_LINE=$(grep -n "typedef long (*syscall_fn_t)" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
+          REF1_LINE=$(grep -n "syscall_fn_t \*ksu_syscall_table" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
+          REF2_LINE=$(grep -n "ksu_syscall_table_hook" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
+          
+          echo "[✓] 类型定义行号：$DEF_LINE"
+          echo "[✓] 第一处引用行号：$REF1_LINE"
+          echo "[✓] 第二处引用行号：$REF2_LINE"
+          
+          if [ "$DEF_LINE" -lt "$REF1_LINE" ] && [ "$DEF_LINE" -lt "$REF2_LINE" ]; then
+            echo "[✅ 校验通过] 类型定义位置在所有引用之前，完全符合C语言编译顺序要求"
+          else
+            echo "[❌ 校验失败] 类型定义位置晚于引用点，会触发重复类型错误"
+            exit 1
+          fi
+
+      - name: 【修复KernelSU 2】syscall_fn_t单文件预编译测试
+        id: ksu-single-file-build-test
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          export ARCH=arm64
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # 单独编译KernelSU核心报错文件，验证3处未知类型错误是否100%消除
+          set +e
+          make O=out CC=clang LD=ld.lld \
+            drivers/kernelsu/core/init.o 2>&1 | tee ksu_single_build.log
+          BUILD_EXIT=$?
+          set -e
+          
+          echo "[✓] 单文件编译日志已生成，开始错误扫描"
+          ERROR_COUNT=$(grep -c "error: unknown type name 'syscall_fn_t'" ksu_single_build.log 2>/dev/null || echo 0)
+          
+          if [ "$BUILD_EXIT" -eq 0 ] && [ "$ERROR_COUNT" -eq 0 ]; then
+            echo "[✅ 校验通过] drivers/kernelsu/core/init.o编译100%成功，3处syscall_fn_t类型错误完全消除"
+          else
+            echo "[❌ 校验失败] 单文件编译仍存在错误，错误数量：$ERROR_COUNT"
+            grep "error:" ksu_single_build.log || true
+            exit 1
+          fi
+
+      - name: 【修复KernelSU 3】全KernelSU子目录编译链路预校验
+        id: ksu-whole-dir-build-test
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          export ARCH=arm64
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # 编译整个KernelSU驱动目录，确保所有关联源文件无连锁类型报错
+          set +e
+          make O=out CC=clang LD=ld.lld \
+            drivers/kernelsu/ 2>&1 | tee ksu_whole_dir_build.log
+          DIR_BUILD_EXIT=$?
+          set -e
+          
+          echo "[✓] KernelSU全目录编译完成，开始错误扫描"
+          TOTAL_ERROR=$(grep -c "error:" ksu_whole_dir_build.log 2>/dev/null || echo 0)
+          
+          if [ "$DIR_BUILD_EXIT" -eq 0 ] && [ "$TOTAL_ERROR" -eq 0 ]; then
+            echo "[✅ 校验通过] KernelSU全驱动目录编译无任何错误，类型兼容修复完全生效"
+          else
+            echo "[❌ 校验失败] KernelSU目录编译存在错误，错误总数：$TOTAL_ERROR"
+            grep "error:" ksu_whole_dir_build.log || true
+            exit 1
+          fi
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
@@ -522,6 +618,7 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] olddefconfig 同步完成"
+
       
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
         id: fix-writeback-final
