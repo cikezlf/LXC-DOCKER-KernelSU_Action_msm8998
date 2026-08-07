@@ -490,7 +490,7 @@ jobs:
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "legacy分支(无tag)")
           LATEST_TAG=$(git ls-remote --tags --refs --sort='-v:refname' \
             https://github.com/KernelSU-Next/KernelSU-Next \
-            | grep -v -iE "beta|rc|test|preview|nightly|dev" \
+            | grep -v -iE "beta|rc|test|preview|nightly|dev" 2>/dev/null \
             | head -1 \
             | cut -d '/' -f 3)
       
@@ -512,6 +512,7 @@ jobs:
             exit 1
           fi
           echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
+
 
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
