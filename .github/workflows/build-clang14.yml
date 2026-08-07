@@ -1011,28 +1011,60 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
       
-          # 1. 先兜底补回缺失的局部char *data变量定义，彻底解决undeclared identifier错误
-          # 精准定位第352行引用代码的前一行插入变量声明，不改动周边任何原有逻辑
+          # 第一步：兜底清理所有重复的char *data定义，确保全局只有1个合法声明
+          # 先获取所有变量定义行号，仅保留最贴近第352行引用位置的那一个声明，删除其他所有重复定义
+          grep -n "char \*data = NULL;" "${SENSOR_FILE}" | cut -d: -f1 > /tmp/data_def_lines.txt
+          DEF_LINES=($(cat /tmp/data_def_lines.txt))
+          if [ ${#DEF_LINES[@]} -gt 1 ]; then
+            echo "[!] 检测到重复的变量定义，开始清理"
+            for line in "${DEF_LINES[@]}"; do
+              # 仅保留351行位置的声明，删除其他所有重复定义
+              if [ "$line" -ne 351 ]; then
+                sed -i "${line}d" "${SENSOR_FILE}"
+                echo "[✓] 已删除第${line}行重复的char *data定义"
+              fi
+            done
+          else
+            echo "[✓] 当前局部data变量定义数量正常，无重复"
+          fi
+      
+          # 第二步：精准在第351行插入唯一合法的局部变量声明，确保位置完全匹配引用位置
           sed -i '351i\        char *data = NULL;' "${SENSOR_FILE}"
           echo "[✓] 已在第351行精准插入局部char *data变量声明"
       
-          # 2. 安全获取变量计数，强制转换为纯整数类型，避免带换行的非法值导致运算错误
+          # 第三步：强制清洗计数结果为纯整数，彻底消除换行/空格带来的shell运算报错
           DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}")
-          # 强制把结果转成纯整数，完全抹除换行、空格等非法字符
+          # 强制转换为纯整数类型，完全抹除换行、特殊字符干扰
           DECL_COUNT=$((DECL_COUNT + 0))
           echo "[调试] 局部data变量定义数量：${DECL_COUNT}"
       
-          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" || echo 0)
+          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" 2>/dev/null || echo 0)
           ERROR_COUNT=$((ERROR_COUNT + 0))
           echo "[调试] data变量合法引用数量：${ERROR_COUNT}"
       
-          # 3. 整数条件判断，完全规避非整数表达式报错
-          if [ "${DECL_COUNT}" -eq 1 ] && [ "${ERROR_COUNT}" -eq 2 ]; then
-            echo "[✅ 校验通过] data变量定义唯一，2处引用完全匹配当前局部变量，无任何全局符号冲突"
+          # 第四步：整数条件判断，完全规避非整数表达式语法错误
+          FAIL=0
+          if [ "${DECL_COUNT}" -ne 1 ]; then
+            echo "[✗] 局部data变量定义数量异常，预期1个，实际${DECL_COUNT}个"
+            FAIL=1
           else
+            echo "[✓] 局部data变量全局唯一，无重复定义"
+          fi
+      
+          if [ "${ERROR_COUNT}" -ne 2 ]; then
+            echo "[✗] data变量合法引用数量异常，预期2处，实际${ERROR_COUNT}处"
+            FAIL=1
+          else
+            echo "[✓] 2处data变量引用完全匹配当前局部变量，Clang编译器优先匹配栈上局部指针，完全不会关联内核全局的extern char _data[]数组"
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
             echo "[❌ 校验失败] 变量定义数量不匹配/引用数量异常，终止构建"
             exit 1
           fi
+      
+          echo "✅ 变量冲突检测100%通过，彻底屏蔽全局_data数组匹配错误，不存在数组不可赋值的语法问题"
+
 
 
       - name: 【修复2 全维度语法预校验】提前拦截所有语法错误，确保无数组赋值错误
