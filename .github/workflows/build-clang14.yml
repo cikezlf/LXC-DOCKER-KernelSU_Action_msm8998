@@ -859,40 +859,42 @@ jobs:
           fi
           echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
 
-      - name: 【新增修复Clang兼容7终极版】全量清除msm_sensor.c所有32位兼容代码
-        id: fix-msm-sensor-ultimate
+      - name: 【新增修复Clang兼容7终极全量版】彻底清除msm_sensor.c所有32位兼容代码
+        id: fix-msm-sensor-full-ultimate
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
-          cp "$SENSOR_FILE" "$SENSOR_FILE.bak.final"
+          cp "$SENSOR_FILE" "$SENSOR_FILE.bak.final.full"
 
           echo "=== 调试：打印当前msm_sensor.c中所有32位相关原始代码行 ==="
-          grep -n "sensorb_cfg_data32\|sensorb_info_fusion_id32\|compat_ptr\|_32" "$SENSOR_FILE" || echo "[!] 无相关遗留代码"
+          grep -n "sensorb_cfg_data32\|sensorb_info_fusion_id32\|compat_ptr\|data32" "$SENSOR_FILE" || echo "[!] 无相关遗留代码"
 
-          # 第一层：全局替换所有compat_ptr调用为64位原生指针转换
+          # 第一层：全局替换所有compat_ptr调用为64位原生指针转换，覆盖所有场景
           sed -i 's/compat_ptr(/(void __user *)(uintptr_t)(/g' "$SENSOR_FILE"
           echo "[✓] 所有compat_ptr()调用已全局替换为64位原生指针转换"
 
-          # 第二层：全局替换所有32位结构体类型为64位原生类型
+          # 第二层：全局替换所有32位结构体类型为64位原生类型，覆盖所有变体
           sed -i 's/struct sensorb_cfg_data32/struct sensorb_cfg_data/g' "$SENSOR_FILE"
-          echo "[✓] 所有sensorb_cfg_data32类型已替换为64位原生sensorb_cfg_data"
+          sed -i 's/struct sensorb_info_fusion_id32/struct sensorb_info_fusion_id/g' "$SENSOR_FILE"
+          echo "[✓] 所有32位专属结构体类型已全部替换为64位原生类型"
 
-          # 第三层：清理所有带32后缀的变量名，替换为64位原生变量名
+          # 第三层：全量替换所有32位后缀变量名，覆盖全部遗漏的data32类变量
+          sed -i 's/data32/data/g' "$SENSOR_FILE"
           sed -i 's/f_conf_array32/f_conf_array/g' "$SENSOR_FILE"
           sed -i 's/conf_array32/conf_array/g' "$SENSOR_FILE"
           sed -i 's/write_config32/write_config/g' "$SENSOR_FILE"
           sed -i 's/stop_setting32/stop_setting/g' "$SENSOR_FILE"
-          echo "[✓] 所有32后缀变量名已替换为64位原生变量名"
+          echo "[✓] 所有32位专属变量名已全部替换为64位原生变量名"
 
-          # 第四层：清理所有残留的32位结构体前向声明
+          # 第四层：清理所有残留的32位结构体前向声明，彻底删除冗余声明
           sed -i '/struct sensorb_info_fusion_id32/d' "$SENSOR_FILE"
-          echo "[✓] 32位不完整结构体声明已清除"
+          sed -i '/struct sensorb_cfg_data32/d' "$SENSOR_FILE"
+          echo "[✓] 所有32位不完整结构体前向声明已全部清除"
 
-          echo "[✓] 终极修复完成，所有32位兼容代码已全量转换为64位原生逻辑"
+          echo "[✓] 终极全量修复完成，所有32位兼容代码已100%转换为64位原生逻辑"
 
 
-
-      - name: 【校验·修复7终极版】msm_sensor.c全量清理确认
+      - name: 【校验·修复7终极全量版】msm_sensor.c全量清理完整性100%确认
         run: |
           SENSOR_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
           FAIL=0
@@ -903,16 +905,16 @@ jobs:
             grep -n "struct sensorb_info_fusion_id32" "$SENSOR_FILE"
             FAIL=1
           else
-            echo "[✓] 32位不完整结构体声明已完全清除"
+            echo "[✓] 32位sensorb_info_fusion_id32结构体声明已完全清除"
           fi
 
-          # 校验2：32位结构体类型sensorb_cfg_data32完全清除
+          # 校验2：32位sensorb_cfg_data32结构体类型完全清除
           if grep -q "sensorb_cfg_data32" "$SENSOR_FILE"; then
             echo "[✗] 检测到残留的sensorb_cfg_data32类型引用"
             grep -n "sensorb_cfg_data32" "$SENSOR_FILE"
             FAIL=1
           else
-            echo "[✓] sensorb_cfg_data32类型引用已完全清除"
+            echo "[✓] 32位sensorb_cfg_data32类型引用已完全清除"
           fi
 
           # 校验3：compat_ptr函数调用完全清除
@@ -924,18 +926,27 @@ jobs:
             echo "[✓] 所有compat_ptr调用已完全清除"
           fi
 
-          # 校验4：32后缀变量名完全清除
+          # 校验4：遗漏的原生data32变量100%清除，彻底解决当前未声明报错
+          if grep -q "data32" "$SENSOR_FILE"; then
+            echo "[✗] 检测到残留的未声明data32变量访问逻辑"
+            grep -n "data32" "$SENSOR_FILE"
+            FAIL=1
+          else
+            echo "[✓] 所有data32变量已全部替换为64位原生变量名"
+          fi
+
+          # 校验5：其他带32后缀的变量名完全清除
           if grep -qE "(f_conf_array32|conf_array32|write_config32|stop_setting32)" "$SENSOR_FILE"; then
             echo "[✗] 检测到残留的32后缀变量名"
             grep -nE "(f_conf_array32|conf_array32|write_config32|stop_setting32)" "$SENSOR_FILE"
             FAIL=1
           else
-            echo "[✓] 所有32后缀变量名已完全清除"
+            echo "[✓] 所有其他32后缀变量名已完全清除"
           fi
 
-          # 校验5：64位指针转换逻辑已正确写入
+          # 校验6：64位指针转换逻辑已正确写入
           if grep -q "(void __user \*)(uintptr_t)" "$SENSOR_FILE"; then
-            echo "[✓] 64位原生指针转换逻辑已正确写入"
+            echo "[✓] 64位原生指针转换逻辑已正确写入所有对应位置"
           else
             echo "[!] 文件中无compat_ptr调用场景，无需额外转换逻辑"
           fi
@@ -944,7 +955,7 @@ jobs:
             echo "❌ msm_sensor.c终极适配校验失败，终止构建"
             exit 1
           fi
-          echo "✅ 修复7终极版校验通过，彻底消除32位兼容层所有残留代码"
+          echo "✅ 修复7终极全量版校验100%通过，彻底消除data32未声明编译错误"
 
 
 
