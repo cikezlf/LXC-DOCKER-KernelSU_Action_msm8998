@@ -513,35 +513,48 @@ jobs:
           echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
 
       # ==================== 新增：KernelSU-Next syscall_fn_t缺失类型修复 ====================
-      - name: 【修复KernelSU 1】新增syscall_fn_t缺失类型定义，彻底解决类型未定义报错
+      - name: 【修复KernelSU 1 三重兜底版】新增syscall_fn_t缺失类型定义，彻底解决类型未定义报错
         id: fix-ksu-syscall-type
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
           
-          # 先备份原始头文件，保证可回溯
-          cp "$KSU_HOOK_HEADER" "${KSU_HOOK_HEADER}.bak.origin"
-          echo "[✓] syscall_hook.h原始备份已生成"
-          
-          # 头文件最顶部插入缺失的syscall_fn_t类型定义，确保后续所有引用点都能识别
-          sed -i '1i\typedef long (*syscall_fn_t)(const struct pt_regs *);' "$KSU_HOOK_HEADER"
-          echo "[✓] 已在syscall_hook.h头部插入syscall_fn_t函数指针类型定义"
-          
-          # 基础写入校验
+          # 第一步：先做完整备份，确保可回溯
+          cp "$KSU_HOOK_HEADER" "${KSU_HOOK_HEADER}.bak.full_$(date +%Y%m%d_%H%M%S)"
+          echo "[✓] syscall_hook.h全量原始备份已生成"
+      
+          # 第一层兜底：先清理旧的重复插入残留，避免之前的失败操作污染文件
+          sed -i '/typedef long (*syscall_fn_t)(const struct pt_regs *);/d' "$KSU_HOOK_HEADER"
+          echo "[✓] 已清理文件中可能残留的重复类型定义"
+      
+          # 第二层兜底：优先使用安全的行首插入方式写入类型定义，兼容旧内核特殊头文件格式
+          FIRST_LINE_NUM=$(head -n 1 "$KSU_HOOK_HEADER" | grep -q '^#' && echo 1 || echo 2)
+          sed -i "${FIRST_LINE_NUM}i\typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"
+          echo "[✓] 第一层尝试：在头文件第${FIRST_LINE_NUM}行插入类型定义"
+      
+          # 第三层兜底：若第一层写入失败，直接在文件最开头写入，确保绝对生效
+          if ! grep -q "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"; then
+            echo "typedef long (*syscall_fn_t)(const struct pt_regs *);" | cat - "$KSU_HOOK_HEADER" > "${KSU_HOOK_HEADER}.new"
+            mv "${KSU_HOOK_HEADER}.new" "$KSU_HOOK_HEADER"
+            echo "[✓] 第二层兜底写入：通过重写文件头部强制插入类型定义"
+          fi
+      
+          # 最终校验：强制验证写入结果，失败立即终止不会带错进入编译流程
           grep "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER" > /dev/null
           if [ $? -eq 0 ]; then
-            echo "[✅ 校验通过] syscall_fn_t类型定义已成功写入头文件"
+            echo "[✅ 校验通过] syscall_fn_t函数指针类型定义已100%成功写入头文件"
           else
-            echo "[❌ 校验失败] syscall_fn_t类型定义未写入成功，终止构建"
+            echo "[❌ 校验失败] 三重兜底写入全部失败，终止构建流程"
             exit 1
           fi
 
+      
       - name: 【校验KernelSU 1】类型定义位置有效性确认
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
           
-          # 校验类型定义行号必须早于所有syscall_fn_t引用行
+          # 校验类型定义行号必须早于所有syscall_fn_t引用行，符合C语言先定义后使用规则
           DEF_LINE=$(grep -n "typedef long (*syscall_fn_t)" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
           REF1_LINE=$(grep -n "syscall_fn_t \*ksu_syscall_table" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
           REF2_LINE=$(grep -n "ksu_syscall_table_hook" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
@@ -556,6 +569,7 @@ jobs:
             echo "[❌ 校验失败] 类型定义位置晚于引用点，会触发重复类型错误"
             exit 1
           fi
+
 
       - name: 【修复KernelSU 2】syscall_fn_t单文件预编译测试
         id: ksu-single-file-build-test
@@ -584,6 +598,7 @@ jobs:
             exit 1
           fi
 
+      
       - name: 【修复KernelSU 3】全KernelSU子目录编译链路预校验
         id: ksu-whole-dir-build-test
         run: |
@@ -610,6 +625,7 @@ jobs:
             grep "error:" ksu_whole_dir_build.log || true
             exit 1
           fi
+
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
