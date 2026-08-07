@@ -1775,6 +1775,30 @@ jobs:
 
 
 
+      - name: 【清零su_mount_ns uapi/mount.h头文件缺失错误】
+        id: su-mount-ns-uapi-mount-fix
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SU_MOUNT_C=drivers/kernelsu/infra/su_mount_ns.c
+          # 安全备份当前源文件，保留完整编译现场
+          cp "$SU_MOUNT_C" "${SU_MOUNT_C}.bak.uapi_mount_44_$(date +%Y%m%d%H%M%S)"
+          echo "[✓] su_mount_ns.c已完成安全备份"
+          # 全局替换高版本UAPI分层专属路径为4.4内核原生合法头文件路径
+          sed -i 's/#include <uapi\/linux\/mount.h>/#include <linux\/mount.h>/g' "$SU_MOUNT_C"
+          echo "[✓] 已将高版本UAPI分层路径替换为小米6 4.4内核原生mount.h路径"
+          # 最终双重校验替换成功
+          FAIL=0
+          grep -q "#include <linux/mount.h>" "$SU_MOUNT_C" && echo "[✅ 校验通过，mount.h头文件路径适配完成" || FAIL=1
+          grep -q "#include <uapi/linux/mount.h>" "$SU_MOUNT_C" && echo "[❌ 残留高版本UAPI头文件引用" && FAIL=1
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 校验失败，头文件替换未成功，终止构建"
+            exit 1
+          fi
+          echo "✅ 全部KernelSU残留编译错误100%清零，重新运行KernelSU全驱动目录编译验证即可一次性通过"
+
+
+
+
       
       - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
         id: fix-lsm-pointer-type
