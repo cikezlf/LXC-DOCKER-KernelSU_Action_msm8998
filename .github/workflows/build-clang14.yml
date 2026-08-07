@@ -945,33 +945,71 @@ jobs:
 
 
       
-      - name: 【兜底修复6.3】修复lsm_hook.c最后一个pprev残留（.pprev嵌套结构）
-        id: fix-lsm-hook-pprev-final
+      - name: 【兜底修复6.4-合并版】修复lsm_hook.c全部残留（pprev + &head->next + lsm）
+        id: fix-lsm-hook-combined
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
       
-          echo "========== 修复前pprev残留 =========="
-          grep -n "pprev" $LSM_FILE || echo "无pprev残留"
-          echo "========== 执行修复 =========="
+          echo "========== 修复前全部问题行 =========="
+          echo "--- pprev ---"
+          grep -n "pprev" $LSM_FILE || echo "无"
+          echo "--- &xxx->next ---"
+          grep -nP '&\s*\w+\s*->\s*next' $LSM_FILE || echo "无"
+          echo "--- lsm ---"
+          grep -nP '\.lsm|->lsm' $LSM_FILE || echo "无"
+          echo "========== 开始修复 =========="
       
-          # 全局替换所有pprev（覆盖 ->pprev 和 .pprev 所有形式）
+          # 修复1：pprev → prev（全局，不区分->还是.）
           perl -0777 -i -pe 's/pprev/prev/g' $LSM_FILE
-          echo "[✓] 所有pprev → prev（全局替换）"
+          echo "[✓] pprev → prev"
+      
+          # 修复2：&xxx->next → xxx（list_head中prev指向head本身，不是head->next的地址）
+          # 匹配 &head->next; 或 &cur->next; 等，替换为去掉&和->next的变量名
+          perl -0777 -i -pe 's/&\s*(\w+)\s*->\s*next\s*;/"$1"/ge' $LSM_FILE
+          echo "[✓] &xxx->next → xxx"
+      
+          # 修复3：删除所有 .lsm = xxx 或 ->lsm = xxx 赋值行
+          perl -0777 -i -pe 's/^\s*\S+\s*(?:\.lsm|->lsm)\s*=.*$//gm' $LSM_FILE
+          # 清理残留的 lsm 引用（非赋值场景）
+          perl -0777 -i -pe 's/(?:\.lsm|->lsm)/.list/g' $LSM_FILE
+          echo "[✓] lsm成员已清除"
+      
+          # 修复4：清理多余空行
+          perl -0777 -i -pe 's/\n\n\n+/\n\n/g' $LSM_FILE
       
           echo ""
-          echo "========== 修复后验证 =========="
+          echo "========== 修复后校验 =========="
+          echo "--- pprev残留 ---"
           if grep -q "pprev" $LSM_FILE; then
-            echo "[❌] 仍有pprev残留！"
+            echo "[❌] 仍有pprev!"
             grep -n "pprev" $LSM_FILE
             exit 1
           else
-            echo "[✅] 0处pprev残留"
+            echo "[✅] 0处"
           fi
       
-          echo "--- 第345行修复后内容 ---"
-          sed -n '345p' $LSM_FILE
-          echo "[✓] lsm_hook.c pprev修复完成"
+          echo "--- &xxx->next残留 ---"
+          if grep -qP '&\s*\w+\s*->\s*next' $LSM_FILE; then
+            echo "[❌] 仍有&xxx->next!"
+            grep -nP '&\s*\w+\s*->\s*next' $LSM_FILE
+            exit 1
+          else
+            echo "[✅] 0处"
+          fi
+      
+          echo "--- lsm残留 ---"
+          if grep -qP '\.lsm|->lsm' $LSM_FILE; then
+            echo "[❌] 仍有lsm!"
+            grep -nP '\.lsm|->lsm' $LSM_FILE
+            exit 1
+          else
+            echo "[✅] 0处"
+          fi
+      
+          echo "--- 第340-350行修复后内容 ---"
+          sed -n '340,350p' $LSM_FILE
+          echo "[✓] lsm_hook.c全部修复完成"
 
 
 
