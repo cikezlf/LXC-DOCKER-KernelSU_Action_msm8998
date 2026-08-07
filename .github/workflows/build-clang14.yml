@@ -1062,55 +1062,65 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           BRIDGE_FILE=drivers/kernelsu/hook/syscall_event_bridge.c
       
-          echo "--- 修复前第25-80行 ---"
-          sed -n '25,80p' $BRIDGE_FILE | cat -n
+          echo "--- 当前头文件区域（前20行） ---"
+          head -20 $BRIDGE_FILE | cat -n
           echo "--- 开始修复 ---"
       
-          # 修复1：补充缺失的头文件（strncpy_from_user在uaccess.h中）
+          # 修复1：以第一个#include为锚点，在其后插入缺失的头文件
+          FIRST_INCLUDE_LINE=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
+          if [ -z "$FIRST_INCLUDE_LINE" ]; then
+            echo "[❌] 未找到任何#include行，无法定位插入点"
+            exit 1
+          fi
+          echo "[*] 第一个#include在第${FIRST_INCLUDE_LINE}行"
+      
+          # 检查并插入uaccess.h
           if ! grep -q "#include <linux/uaccess.h>" $BRIDGE_FILE; then
-            sed -i '/#include <linux\/fs.h>/a\#include <linux/uaccess.h>' $BRIDGE_FILE
-            echo "[✓] 已添加linux/uaccess.h头文件"
+            sed -i "${FIRST_INCLUDE_LINE}a\#include <linux/uaccess.h>" $BRIDGE_FILE
+            echo "[✓] 已插入linux/uaccess.h（解决strncpy_from_user隐式声明）"
           else
-            echo "[✓] uaccess.h头文件已存在"
+            echo "[✓] uaccess.h已存在"
           fi
       
-          # 修复2：在文件头部添加untagged_addr的4.4内核兼容宏
-          # 4.4内核中指针不需要untag，直接返回原值即可
-          COMPAT_MACRO='#if LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)\n#define untagged_addr(addr) (addr)\n#endif'
-          if ! grep -q "untagged_addr" <(head -20 $BRIDGE_FILE); then
-            sed -i "1s/^/${COMPAT_MACRO}\n/" $BRIDGE_FILE
-            echo "[✓] 已添加untagged_addr兼容宏（4.4内核直接返回原指针）"
+          # 检查并插入jump_label.h（DEFINE_STATIC_KEY_TRUE需要）
+          if ! grep -q "#include <linux/jump_label.h>" $BRIDGE_FILE; then
+            sed -i "${FIRST_INCLUDE_LINE}a\#include <linux/jump_label.h>" $BRIDGE_FILE
+            echo "[✓] 已插入linux/jump_label.h（解决DEFINE_STATIC_KEY_TRUE宏展开失败）"
+          else
+            echo "[✓] jump_label.h已存在"
+          fi
+      
+          # 修复2：在文件最开头插入untagged_addr兼容宏
+          if ! grep -q "define untagged_addr" $BRIDGE_FILE; then
+            sed -i '1i#if LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)\n#define untagged_addr(addr) (addr)\n#endif\n' $BRIDGE_FILE
+            echo "[✓] 已添加untagged_addr兼容宏（4.4内核无指针标签，直接返回原值）"
           else
             echo "[✓] untagged_addr兼容宏已存在"
           fi
       
-          # 修复3：处理ksud_execve_key缺失——在4.4内核中提供空实现或条件编译
-          # 先检查该符号在文件中的使用方式
-          echo "--- ksud_execve_key使用上下文 ---"
-          grep -n "ksud_execve_key" $BRIDGE_FILE | head -20
-      
-          # 如果ksud_execve_key是作为extern声明使用的，需要添加条件编译桩
-          if grep -q "ksud_execve_key" $BRIDGE_FILE; then
-            # 在文件中添加条件编译包裹ksud_execve_key相关代码
-            sed -i 's/^.*ksud_execve_key.*$/&/g' $BRIDGE_FILE
-            STUB_DEF='#if LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)\n/* 4.4内核兼容：ksud_execve_key在低版本中不可用，提供空桩 */\n#ifndef ksud_execve_key\n#define ksud_execve_key NULL\n#endif\n#endif'
-            # 在第一个include之后插入
-            sed -i "/#include <linux\/uaccess.h>/a\\${STUB_DEF}" $BRIDGE_FILE
-            echo "[✓] 已添加ksud_execve_key的4.4内核兼容桩"
-          fi
-      
-          echo "--- 修复后第25-80行 ---"
-          sed -n '25,80p' $BRIDGE_FILE | cat -n
+          echo "--- 修复后头文件区域（前25行） ---"
+          head -25 $BRIDGE_FILE | cat -n
+          echo "--- 修复后第45-50行（ksud_execve_key区域） ---"
+          sed -n '45,50p' $BRIDGE_FILE | cat -n
       
           # 校验
           FAIL=0
-          if grep -q "untagged_addr" $BRIDGE_FILE && ! grep -q "define untagged_addr" $BRIDGE_FILE; then
-            echo "[⚠] untagged_addr使用存在但兼容宏可能未生效，请检查"
-          fi
           if grep -q "#include <linux/uaccess.h>" $BRIDGE_FILE; then
-            echo "[✅ uaccess.h头文件已就位]"
+            echo "[✅ uaccess.h已就位]"
           else
-            echo "[❌] uaccess.h头文件缺失"
+            echo "[❌] uaccess.h缺失"
+            FAIL=1
+          fi
+          if grep -q "#include <linux/jump_label.h>" $BRIDGE_FILE; then
+            echo "[✅ jump_label.h已就位]"
+          else
+            echo "[❌] jump_label.h缺失"
+            FAIL=1
+          fi
+          if grep -q "define untagged_addr" $BRIDGE_FILE; then
+            echo "[✅ untagged_addr兼容宏已就位]"
+          else
+            echo "[❌] untagged_addr兼容宏缺失"
             FAIL=1
           fi
       
