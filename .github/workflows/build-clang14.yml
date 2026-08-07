@@ -1200,6 +1200,56 @@ jobs:
 
 
 
+      - name: 【兜底修复11】修复tp_marker.c的4.4内核兼容（sched/signal.h版本条件）
+        id: fix-tp-marker
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          FILE=drivers/kernelsu/hook/tp_marker.c
+      
+          echo "=== 修复前：文件前10行 ==="
+          head -10 $FILE | cat -n
+      
+          # 确保 version.h 存在
+          if ! grep -q "linux/version.h" $FILE; then
+            FIRST_INC=$(grep -n "^#include" $FILE | head -1 | cut -d: -f1)
+            sed -i "${FIRST_INC}i#include <linux/version.h>" $FILE
+            echo "[✓] 已插入 linux/version.h"
+          else
+            echo "[✓] version.h 已存在"
+          fi
+      
+          # 将无条件的 sched/signal.h 替换为版本条件编译
+          if grep -q "linux/sched/signal.h" $FILE; then
+            sed -i 's|#include <linux/sched/signal.h>|#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)\n#include <linux/sched/signal.h>\n#else\n#include <linux/sched.h>\n#endif|' $FILE
+            echo "[✓] 已将 sched/signal.h 替换为版本条件编译"
+          else
+            echo "[!] 未找到 sched/signal.h，可能已被修复"
+          fi
+      
+          echo "=== 修复后：相关区域 ==="
+          grep -n -B 1 -A 4 "sched/signal\|LINUX_VERSION" $FILE | cat -n
+      
+          # 校验
+          FAIL=0
+          if grep -q "LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)" $FILE; then
+            echo "[✅ 版本条件编译已就位]"
+          else
+            echo "[❌ 版本条件编译缺失]"
+            FAIL=1
+          fi
+          if grep -q "linux/sched.h" $FILE; then
+            echo "[✅ sched.h 后备已就位]"
+          else
+            echo "[❌ sched.h 后备缺失]"
+            FAIL=1
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ tp_marker.c 修复完成"
+
+
       
       - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
         id: fix-lsm-pointer-type
