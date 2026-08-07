@@ -1055,8 +1055,8 @@ jobs:
             fi
           fi
 
-      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容
-        id: fix-syscall-bridge-final-v4
+      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容（ksud_execve_key + __nocfi）
+        id: fix-syscall-bridge-final
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           BRIDGE_FILE=drivers/kernelsu/hook/syscall_event_bridge.c
@@ -1064,15 +1064,15 @@ jobs:
           echo "=== 修复前：文件前10行 ==="
           head -10 $BRIDGE_FILE | cat -n
       
-          # 步骤1：清理残留
+          # 步骤1：清理之前修复可能残留的垃圾行
           sed -i '/^#if LINUX_VERSION_CODE/d' $BRIDGE_FILE
           sed -i '/^#define untagged_addr/d' $BRIDGE_FILE
           sed -i '/^#endif$/d' $BRIDGE_FILE
           echo "[✓] 已清理残留"
       
-          # 步骤2：定位第一个 #include 并插入缺失头文件
+          # 步骤2：插入缺失的头文件（version.h 和 uaccess.h）
           FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          echo "[*] 锚点：第${FIRST_INC}行"
+          echo "[*] 第一个 #include 在第 ${FIRST_INC} 行"
       
           if ! grep -q "linux/version.h" $BRIDGE_FILE; then
             sed -i "${FIRST_INC}i\#include <linux/version.h>" $BRIDGE_FILE
@@ -1080,44 +1080,68 @@ jobs:
             echo "[✓] 已插入 linux/version.h"
           fi
       
-          if ! grep -q "linux/jump_label.h" $BRIDGE_FILE; then
-            sed -i "${FIRST_INC}i\#include <linux/jump_label.h>" $BRIDGE_FILE
-            FIRST_INC=$((FIRST_INC + 1))
-            echo "[✓] 已插入 linux/jump_label.h"
-          else
-            echo "[✓] jump_label.h 已存在"
-          fi
-      
           if ! grep -q "linux/uaccess.h" $BRIDGE_FILE; then
             sed -i "${FIRST_INC}i\#include <linux/uaccess.h>" $BRIDGE_FILE
             echo "[✓] 已插入 linux/uaccess.h"
           fi
       
-          echo "=== 修复后：文件前15行 ==="
-          head -15 $BRIDGE_FILE | cat -n
+          # 步骤3：找到最后一个 #include 行号，在其后插入兼容宏块
+          LAST_INC=$(grep -n "^#include" $BRIDGE_FILE | tail -1 | cut -d: -f1)
+          echo "[*] 最后一个 #include 在第 ${LAST_INC} 行"
       
-          # 步骤3：校验（使用宽松匹配，兼容双引号和尖括号）
+          # 删除可能已存在的旧兼容宏块
+          sed -i '/\/\* 4\.4 内核兼容宏 \*\//,/\/\* 兼容宏结束 \*\//d' $BRIDGE_FILE
+      
+          # 在最后一个 #include 之后插入兼容宏块
+          sed -i "${LAST_INC}a\\
+      \\
+      /* 4.4 内核兼容宏 */\\
+      #ifndef __nocfi\\
+      #define __nocfi\\
+      #endif\\
+      \\
+      /* 静态键回退定义 */\\
+      #include <linux/static_key.h>\\
+      #ifndef DEFINE_STATIC_KEY_TRUE\\
+      #define DEFINE_STATIC_KEY_TRUE(name)  static struct static_key name = STATIC_KEY_INIT\\
+      #define static_branch_enable(key)     static_key_slow_inc(key)\\
+      #define static_branch_disable(key)    static_key_slow_dec(key)\\
+      #define static_branch_likely(key)     static_key_false(key)\\
+      #define static_branch_unlikely(key)   static_key_true(key)\\
+      #endif\\
+      /* 兼容宏结束 */" $BRIDGE_FILE
+      
+          echo "=== 修复后：文件前20行 ==="
+          head -20 $BRIDGE_FILE | cat -n
+      
+          echo "=== 兼容宏区域 ==="
+          grep -A 15 "4.4 内核兼容宏" $BRIDGE_FILE | cat -n
+      
+          # 校验
           FAIL=0
-          for hdr in "linux/version.h" "linux/jump_label.h" "linux/uaccess.h"; do
-            if grep -q "${hdr}" $BRIDGE_FILE; then
-              echo "[✅ ${hdr} 已就位]"
-            else
-              echo "[❌ ${hdr} 缺失]"
-              FAIL=1
-            fi
-          done
-      
-          if grep -q "define untagged_addr" $BRIDGE_FILE; then
-            echo "[❌ 仍有自定义 untagged_addr 宏残留]"
-            FAIL=1
+          if grep -q "#ifndef __nocfi" $BRIDGE_FILE; then
+            echo "[✅ __nocfi 兼容宏已就位]"
           else
-            echo "[✅ 无自定义宏残留]"
+            echo "[❌ __nocfi 兼容宏缺失]"
+            FAIL=1
+          fi
+          if grep -q "DEFINE_STATIC_KEY_TRUE" $BRIDGE_FILE; then
+            echo "[✅ DEFINE_STATIC_KEY_TRUE 兼容宏已就位]"
+          else
+            echo "[❌ DEFINE_STATIC_KEY_TRUE 兼容宏缺失]"
+            FAIL=1
+          fi
+          if grep -q "linux/version.h" $BRIDGE_FILE; then
+            echo "[✅ version.h 已就位]"
+          else
+            echo "[❌ version.h 缺失]"
+            FAIL=1
           fi
       
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ syscall_event_bridge.c 头文件修复完成"
+          echo "✅ syscall_event_bridge.c 全部修复完成"
 
 
 
