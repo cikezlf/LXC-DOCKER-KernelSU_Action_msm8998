@@ -513,36 +513,32 @@ jobs:
           echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
 
       # ==================== 新增：KernelSU-Next syscall_fn_t缺失类型修复 ====================
-      - name: 【修复KernelSU 1】syscall_fn_t类型定义强制写入（正则问题已修）
+      - name: 【修复KernelSU 1】syscall_fn_t类型定义强制写入
         id: ksu-syscall-type-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
           
-          # 备份
           cp "$KSU_HOOK_HEADER" "${KSU_HOOK_HEADER}.bak.$(date +%Y%m%d%H%M%S)"
           echo "[✓] 原始备份已生成"
           
-          # 清理旧残留
           sed -i '/typedef long (\*syscall_fn_t)(const struct pt_regs \*);/d' "$KSU_HOOK_HEADER"
           echo "[✓] 已清理残留"
           
-          # 写入：在第1行后插入
           sed -i '1a\typedef long (*syscall_fn_t)(const struct pt_regs *);' "$KSU_HOOK_HEADER"
           echo "[✓] 在第1行后插入类型定义"
           
-          # 输出前5行用于人工确认
           echo "--- 文件前5行 ---"
           head -n 5 "$KSU_HOOK_HEADER"
           echo "--- 结束 ---"
           
-          # 校验：固定字符串匹配，避免正则误判
           if grep -qF "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"; then
             echo "[✅ 校验通过] 类型定义已成功写入"
           else
             echo "[❌ 校验失败] 写入未生效，终止构建"
             exit 1
           fi
+
 
 
 
@@ -571,7 +567,8 @@ jobs:
 
 
 
-      - name: 【预编译测试】init.o单文件编译验证
+      
+      - name: 【预编译测试】init.o单文件编译验证（修复ARM32交叉编译器+整数比较）
         id: ksu-init-compile
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -579,14 +576,18 @@ jobs:
           export ARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
           set +e
           make O=out CC=clang LD=ld.lld drivers/kernelsu/core/init.o 2>&1 | tee ksu_init.log
           RET=$?
           set -e
           
-          ERR_COUNT=$(grep -c "error: unknown type name 'syscall_fn_t'" ksu_init.log 2>/dev/null || echo 0)
+          # 修正：取最后一行确保是单个整数，彻底消灭多行字符串导致的 integer expression expected 错误
+          ERR_COUNT=$(grep -c "error: unknown type name 'syscall_fn_t'" ksu_init.log 2>/dev/null | tail -1)
+          ERR_COUNT=${ERR_COUNT:-0}
           echo "[✓] syscall_fn_t类型错误数：$ERR_COUNT"
+          echo "[✓] make返回码：$RET"
           
           if [ "$RET" -eq 0 ] && [ "$ERR_COUNT" -eq 0 ]; then
             echo "[✅ 校验通过] init.o编译成功，类型错误已消除"
@@ -597,8 +598,8 @@ jobs:
           fi
 
 
-
-      - name: 【修复KernelSU 3】全KernelSU目录编译验证
+      
+      - name: 【修复KernelSU 3】全KernelSU目录编译验证（修复ARM32交叉编译器+整数比较）
         id: ksu-full-compile
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -606,14 +607,17 @@ jobs:
           export ARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
           set +e
           make O=out CC=clang LD=ld.lld drivers/kernelsu/ 2>&1 | tee ksu_dir.log
           RET=$?
           set -e
           
-          TOTAL_ERR=$(grep -c "error:" ksu_dir.log 2>/dev/null || echo 0)
+          TOTAL_ERR=$(grep -c "error:" ksu_dir.log 2>/dev/null | tail -1)
+          TOTAL_ERR=${TOTAL_ERR:-0}
           echo "[✓] 全目录错误总数：$TOTAL_ERR"
+          echo "[✓] make返回码：$RET"
           
           if [ "$RET" -eq 0 ] && [ "$TOTAL_ERR" -eq 0 ]; then
             echo "[✅ 校验通过] KernelSU全目录编译无错误"
@@ -622,6 +626,7 @@ jobs:
             grep "error:" ksu_dir.log || true
             exit 1
           fi
+
 
 
 
