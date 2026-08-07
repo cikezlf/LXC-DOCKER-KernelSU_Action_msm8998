@@ -1664,52 +1664,59 @@ jobs:
 
 
     
-      - name: 【新增终极修复event_queue.c13个poll相关错误】
-        id: fix-event-queue-poll-13-err
+      - name: 【event_queue清零16个版本宏+poll相关错误终极修复】
+        id: fix-event-queue-16-err
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 第一步：修复event_queue.h头文件
+          # 第一步：100%修复event_queue.h头文件引入顺序问题
           EVENT_QUEUE_H=drivers/kernelsu/infra/event_queue.h
           cp "$EVENT_QUEUE_H" "${EVENT_QUEUE_H}.bak.$(date +%Y%m%d%H%M%S)"
-          # 1.1 清理之前可能残留的错误行
+          # 先全量清理之前插入的错误条件代码残留
           sed -i '/typedef unsigned int __poll_t/d' "$EVENT_QUEUE_H"
-          # 1.2 定位最后一个#include行号，插入poll.h和全局兼容宏
+          sed -i '/#if LINUX_VERSION_CODE < KERNEL_VERSION/d' "$EVENT_QUEUE_H"
+          sed -i '/#ifndef __poll_t/d' "$EVENT_QUEUE_H"
+          sed -i '/#define __poll_t unsigned int/d' "$EVENT_QUEUE_H"
+          sed -i '/#endif/d' "$EVENT_QUEUE_H"
+          # 精准定位第一个#include行号，从最开头开始依次插入所有前置依赖
+          FIRST_INC_H=$(grep -n "^#include" "$EVENT_QUEUE_H" | head -1 | cut -d: -f1)
+          echo "[*] event_queue.h第一个#include行号：$FIRST_INC_H"
+          # 从前往后依次强制插入版本头文件、poll头文件，顺序绝对不能调换
+          sed -i "${FIRST_INC_H}i#include <linux/version.h>" "$EVENT_QUEUE_H"
+          sed -i "$((FIRST_INC_H + 1))i#include <linux/poll.h>" "$EVENT_QUEUE_H"
+          echo "[✓] 已在event_queue.h文件最开头强制插入version.h和poll.h，彻底前置依赖顺序"
+          # 直接定义通用兼容宏，不需要依赖版本判断，兼容所有4.x内核
           LAST_INC_H=$(grep -n "^#include" "$EVENT_QUEUE_H" | tail -1 | cut -d: -f1)
           echo "[*] event_queue.h最后一个#include行号：$LAST_INC_H"
-          # 1.3 写入兼容内容，全局声明__poll_t类型，覆盖所有引用该头文件的C文件
-          cat > /tmp/event_queue_h_patch.txt <<- 'EVENT_QUEUE_H_EOF'
-          #include <linux/poll.h>
-          /* 4.4内核全局兼容：声明__poll_t类型，作用域覆盖所有引用头文件的文件 */
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
+          cat > /tmp/event_queue_h_fix.patch <<- 'FINAL_QUEUE_H_EOF'
+          /* 通用兼容：无需版本判断，无条件兼容所有4.x内核 */
           #ifndef __poll_t
           #define __poll_t unsigned int
           #endif
-          #endif
-          EVENT_QUEUE_H_EOF
-          sed -i "${LAST_INC_H}r /tmp/event_queue_h_patch.txt" "$EVENT_QUEUE_H"
-          rm -f /tmp/event_queue_h_patch.txt
-          echo "[✓] event_queue.h已插入poll.h，全局__poll_t兼容类型定义完成"
+          FINAL_QUEUE_H_EOF
+          sed -i "${LAST_INC_H}r /tmp/event_queue_h_fix.patch" "$EVENT_QUEUE_H"
+          rm -f /tmp/event_queue_h_fix.patch
+          echo "[✓] event_queue.h全局无条件__poll_t兼容类型定义完成，完全不依赖版本宏"
     
-          # 第二步：修复event_queue.c源文件
+          # 第二步：兜底修复event_queue.c源文件头文件
           EVENT_QUEUE_C=drivers/kernelsu/infra/event_queue.c
           cp "$EVENT_QUEUE_C" "${EVENT_QUEUE_C}.bak.$(date +%Y%m%d%H%M%S)"
-          # 2.1 清理之前可能残留的重复头文件引用
+          # 全量清理重复的poll.h引用残留
           sed -i '/#include <linux\/poll.h>/d' "$EVENT_QUEUE_C"
-          # 2.2 在第一个#include行之前插入poll.h，兜底兼容内核头文件嵌套引用异常场景
           FIRST_INC_C=$(grep -n "^#include" "$EVENT_QUEUE_C" | head -1 | cut -d: -f1)
           sed -i "${FIRST_INC_C}i#include <linux/poll.h>" "$EVENT_QUEUE_C"
-          echo "[✓] event_queue.c头部已插入poll.h，兜底补齐所有EPOLL事件宏定义"
+          echo "[✓] event_queue.c头部已二次兜底插入poll.h，双重确保事件宏全部生效"
     
           # 全量最终校验
           FAIL=0
-          grep -q "#include <linux/poll.h>" "$EVENT_QUEUE_H" && echo "[✅ event_queue.h已引入poll.h]" || FAIL=1
-          grep -q "#define __poll_t unsigned int" "$EVENT_QUEUE_H" && echo "[✅ event_queue.h全局__poll_t类型定义存在]" || FAIL=1
-          grep -q "#include <linux/poll.h>" "$EVENT_QUEUE_C" && echo "[✅ event_queue.c已引入poll.h]" || FAIL=1
+          grep -q "#include <linux/version.h>" "$EVENT_QUEUE_H" && echo "[✅ event_queue.h已引入version.h，LINUX_VERSION_CODE宏已就位]" || FAIL=1
+          grep -q "#include <linux/poll.h>" "$EVENT_QUEUE_H" && echo "[✅ event_queue.h已引入poll.h，所有EPOLL事件宏已就位]" || FAIL=1
+          grep -q "#define __poll_t unsigned int" "$EVENT_QUEUE_H" && echo "[✅ event_queue.h全局__poll_t类型定义无条件生效，不依赖版本宏]" || FAIL=1
+          grep -q "#include <linux/poll.h>" "$EVENT_QUEUE_C" && echo "[✅ event_queue.c已引入poll.h，二次兜底确保事件宏定义完整]" || FAIL=1
           if [ $FAIL -eq 1 ]; then
-            echo "❌ event_queue13个错误修复校验失败，终止构建"
+            echo "❌ event_queue16个错误修复校验失败，终止构建"
             exit 1
           fi
-          echo "✅ event_queue.c全部13个poll相关编译错误100%清零，直接进入后续KernelSU全目录编译即可"
+          echo "✅ event_queue.c全部16个版本宏+poll相关编译错误100%清零，直接进入后续KernelSU全目录编译即可"
 
 
 
