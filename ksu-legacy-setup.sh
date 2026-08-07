@@ -63,11 +63,11 @@ setup_kernelsu() {
     fi
 
     cd "$GKI_ROOT/$REPO"
-    # 清理现场
+    # 强制修正 remote origin 为官方仓库，防止从 fork 仓库拉取导致 tag 缺失
+    git remote set-url origin "https://github.com/$OWNER/$REPO"
     git stash && echo "[-] Stashed current changes."
     git pull origin legacy && echo "[+] Repository updated."
-    
-    # 关键修复：拉取远程所有tag到本地，解决git pull不自动拉取tag的问题
+    # 拉取远程所有 tag 到本地，解决 git pull 不自动拉取 tag 的问题
     git fetch --tags && echo "[+] All remote tags fetched."
 
     # 切换到最新正式稳定版tag，自动跳过所有预发布版本
@@ -75,7 +75,7 @@ setup_kernelsu() {
         if git checkout "tags/$LATEST_STABLE_TAG" 2>/dev/null; then
             echo "[+] 已成功切换到最新正式稳定版: $LATEST_STABLE_TAG"
         else
-            echo "[!] checkout tags/$LATEST_STABLE_TAG 失败（tag可能不存在于当前仓库），fallback到legacy分支"
+            echo "[!] checkout tags/$LATEST_STABLE_TAG 失败，fallback到legacy分支"
             git checkout legacy
         fi
     else
