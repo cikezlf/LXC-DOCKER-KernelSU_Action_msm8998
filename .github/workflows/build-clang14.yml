@@ -1572,8 +1572,16 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TARGET_FILE=drivers/kernelsu/infra/file_wrapper.c
-          git checkout -- "$TARGET_FILE"
-          echo "[✓] 已从Git恢复KernelSU原生干净file_wrapper.c"
+          if [ ! -f "$TARGET_FILE" ]; then
+            echo "[❌] $TARGET_FILE 文件不存在，请检查路径是否正确"
+            exit 1
+          fi
+          if git ls-files --error-unmatch "$TARGET_FILE" >/dev/null 2>&1; then
+            git checkout -- "$TARGET_FILE"
+            echo "[✓] 已从Git恢复KernelSU原生干净file_wrapper.c"
+          else
+            echo "[!] $TARGET_FILE 不在Git跟踪中，直接使用当前文件"
+          fi
           if ! grep -q "#include <linux/module.h>" "$TARGET_FILE"; then
             sed -i '1i#include <linux/module.h>' "$TARGET_FILE"
           fi
