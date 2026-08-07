@@ -729,6 +729,63 @@ jobs:
           head -n 10 $TARGET_FILE
           echo "--- 结束 ---"
 
+      
+      - name: 【兜底修复3】修复sucompat.c的pgtable.h高版本内核依赖（4.4内核兼容）
+        id: fix-sucompat-pgtable-backport
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          TARGET_FILE=drivers/kernelsu/feature/sucompat.c
+      
+          echo "--- 修复前sucompat.c前15行 ---"
+          head -n 15 $TARGET_FILE
+          echo "--- 结束 ---"
+      
+          # 精准删除高版本专属的linux/pgtable.h引用
+          sed -i '/#include <linux\/pgtable.h>/d' $TARGET_FILE
+          echo "[✓] 已删除linux/pgtable.h高版本头文件引用"
+      
+          # 插入4.4内核等效头文件（asm/pgtable.h + linux/mm.h）
+          LAST_INCLUDE_LINE=$(grep -n '#include' $TARGET_FILE | tail -1 | cut -d: -f1)
+          sed -i "${LAST_INCLUDE_LINE}a\#include <asm/pgtable.h>" $TARGET_FILE
+          sed -i "${LAST_INCLUDE_LINE}a\#include <linux/mm.h>" $TARGET_FILE
+          echo "[✓] 已插入4.4内核等效头文件（asm/pgtable.h + linux/mm.h）"
+      
+          # 使用printf逐行追加兼容宏定义，避免heredoc的YAML缩进冲突
+          printf '\n/* 4.4内核兼容：p4d_offset/pgd_offset_k等5.0+函数回退 */\n' >> $TARGET_FILE
+          printf '#ifndef p4d_offset\n' >> $TARGET_FILE
+          printf '#define p4d_offset(pgd, addr) ((p4d_t *)(pgd))\n' >> $TARGET_FILE
+          printf '#endif\n' >> $TARGET_FILE
+          printf '#ifndef p4d_present\n' >> $TARGET_FILE
+          printf '#define p4d_present(p4d) (1)\n' >> $TARGET_FILE
+          printf '#endif\n' >> $TARGET_FILE
+          printf '#ifndef p4d_none\n' >> $TARGET_FILE
+          printf '#define p4d_none(p4d) (0)\n' >> $TARGET_FILE
+          printf '#endif\n' >> $TARGET_FILE
+          printf '#ifndef pgd_offset_k\n' >> $TARGET_FILE
+          printf '#define pgd_offset_k(addr) pgd_offset(&init_mm, (addr))\n' >> $TARGET_FILE
+          printf '#endif\n' >> $TARGET_FILE
+          echo "[✓] 已追加4.4内核页表函数兼容宏定义"
+      
+          # 第一层校验：高版本头文件完全清除
+          if ! grep -q "#include <linux/pgtable.h>" $TARGET_FILE; then
+            echo "[✅ 校验通过] sucompat.c中已无linux/pgtable.h残留"
+          else
+            echo "[❌ 校验失败] 高版本头文件清理失败"
+            exit 1
+          fi
+      
+          # 第二层校验：等效头文件写入生效
+          if grep -q "#include <asm/pgtable.h>" $TARGET_FILE && grep -q "#include <linux/mm.h>" $TARGET_FILE; then
+            echo "[✅ 校验通过] 4.4内核等效头文件已正确写入"
+          else
+            echo "[❌ 校验失败] 等效头文件写入失败"
+            exit 1
+          fi
+      
+          echo "--- 修复后sucompat.c关键区域 ---"
+          grep -n -E "(#include|p4d_|pgd_offset)" $TARGET_FILE | head -20
+          echo "--- 结束 ---"
+
 
 
       - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
