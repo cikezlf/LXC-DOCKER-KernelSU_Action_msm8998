@@ -943,6 +943,62 @@ jobs:
           grep -n -E "(list_for_each_entry|->prev|->next|NULL)" $LSM_FILE | head -20
           echo "========== 完成 =========="
 
+      - name: 【兜底修复6.1】强制修复lsm_hook.c中pprev和lsm残留（perl精准替换）
+        id: fix-lsm-hook-pprev-lsm-final
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
+      
+          echo "========== 修复前精确内容 =========="
+          echo "--- 包含pprev的行 ---"
+          grep -n "pprev" $LSM_FILE || echo "无pprev行"
+          echo "--- 包含->lsm的行 ---"
+          grep -n "\->lsm" $LSM_FILE || echo "无->lsm行"
+          echo "--- 第340-350行完整内容 ---"
+          sed -n '340,350p' $LSM_FILE
+          echo "========== 开始强力修复 =========="
+      
+          # 1. perl -0777 全局替换 pprev → prev
+          perl -0777 -i -pe 's/->pprev/->prev/g' $LSM_FILE
+          perl -0777 -i -pe 's/\.pprev/.prev/g' $LSM_FILE
+          echo "[✓] pprev → prev（perl全局替换）"
+      
+          # 2. 删除所有 ->lsm = xxx 赋值行
+          perl -0777 -i -pe 's/^\s*->lsm\s*=.*$//gm' $LSM_FILE
+          echo "[✓] ->lsm赋值行已删除"
+      
+          # 3. 替换所有 ->lsm 引用为 NULL
+          perl -0777 -i -pe 's/->lsm/NULL/g' $LSM_FILE
+          perl -0777 -i -pe 's/\.lsm/NULL/g' $LSM_FILE
+          echo "[✓] ->lsm/.lsm 引用已替换为NULL"
+      
+          # 4. 额外清理可能残留的空行（连续空行合并为单个）
+          perl -0777 -i -pe 's/\n\n\n+/\n\n/g' $LSM_FILE
+          echo "[✓] 多余空行已清理"
+      
+          echo ""
+          echo "========== 修复后验证 =========="
+          echo "--- pprev残留 ---"
+          if grep -q "pprev" $LSM_FILE; then
+            echo "[❌] 仍有pprev残留!"
+            grep -n "pprev" $LSM_FILE
+            exit 1
+          else
+            echo "[✅] 0处pprev残留"
+          fi
+      
+          echo "--- lsm残留 ---"
+          if grep -q "\->lsm\|\.lsm" $LSM_FILE; then
+            echo "[❌] 仍有lsm残留!"
+            grep -n "\->lsm\|\.lsm" $LSM_FILE
+            exit 1
+          else
+            echo "[✅] 0处lsm残留"
+          fi
+      
+          echo "--- 第340-350行修复后内容 ---"
+          sed -n '340,350p' $LSM_FILE
+          echo "========== 修复完成 =========="
 
 
 
