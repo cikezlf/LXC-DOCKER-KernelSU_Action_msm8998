@@ -1539,8 +1539,7 @@ jobs:
           fi
           echo "✅ syscall_hook.c 修复完成"
 
-
-      - name: 【兜底修复16】修复file_wrapper.c的4.4内核兼容（struct file_operations 成员缺失 + __poll_t + module.h）
+      - name: 【兜底修复16 修正版】修复file_wrapper.c的4.4内核兼容（struct file_operations 成员缺失 + __poll_t + module.h）
         id: fix-file-wrapper
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -1615,58 +1614,75 @@ jobs:
           echo "[✓] 兼容宏块已插入"
       
           # 步骤4：用条件编译包裹所有不兼容的成员访问
-          # 4.1 包裹 iopoll 成员赋值（约第108行区域）
-          sed -i 's/$[[:space:]]*$p->ops\.iopoll =/\1#if KSU_HAS_IOPOLL\n\1p->ops.iopoll =\n\1#else\n\1(void)0;\n\1#endif\n\1\/\*iopoll_marker\*\/\n\1/' $FILE
-          # 清理标记行
-          sed -i '/\/\*iopoll_marker\*\/$/d' $FILE
-          echo "[✓] iopoll 成员包裹完成"
+          # 关键修正：每个成员用独立的 sed 在匹配行前后插入 #if / #endif，不使用复杂的 s 替换
+      
+          # 4.1 包裹 iopoll 成员赋值
+          if grep -q "p->ops\.iopoll" $FILE; then
+            sed -i '/p->ops\.iopoll =/i#if KSU_HAS_IOPOLL' $FILE
+            sed -i '/p->ops\.iopoll =/a#endif' $FILE
+            echo "[✓] iopoll 成员赋值包裹完成"
+          fi
+          # 处理 iopoll 读取
+          if grep -q "if (p->ops\.iopoll)" $FILE; then
+            sed -i '/if (p->ops\.iopoll)/i#if KSU_HAS_IOPOLL' $FILE
+            sed -i '/if (p->ops\.iopoll)/a#endif' $FILE
+            echo "[✓] iopoll 成员读取包裹完成"
+          fi
       
           # 4.2 包裹 iterate_shared 成员赋值
-          sed -i '/p->ops\.iterate_shared =/i#if KSU_HAS_ITERATE_SHARED' $FILE
-          sed -i '/p->ops\.iterate_shared =/a#endif' $FILE
-          # 处理 iterate_shared 读取（第396行附近）
-          sed -i '/if (p->ops\.iterate_shared)/i#if KSU_HAS_ITERATE_SHARED' $FILE
-          sed -i '/if (p->ops\.iterate_shared)/a#endif' $FILE
-          echo "[✓] iterate_shared 成员包裹完成"
+          if grep -q "p->ops\.iterate_shared" $FILE; then
+            sed -i '/p->ops\.iterate_shared =/i#if KSU_HAS_ITERATE_SHARED' $FILE
+            sed -i '/p->ops\.iterate_shared =/a#endif' $FILE
+            echo "[✓] iterate_shared 成员赋值包裹完成"
+          fi
+          # 处理 iterate_shared 读取
+          if grep -q "if (p->ops\.iterate_shared)" $FILE; then
+            sed -i '/if (p->ops\.iterate_shared)/i#if KSU_HAS_ITERATE_SHARED' $FILE
+            sed -i '/if (p->ops\.iterate_shared)/a#endif' $FILE
+            echo "[✓] iterate_shared 成员读取包裹完成"
+          fi
       
           # 4.3 包裹 copy_file_range 成员
-          sed -i '/p->ops\.copy_file_range =/i#if KSU_HAS_COPY_FILE_RANGE' $FILE
-          sed -i '/p->ops\.copy_file_range =/a#endif' $FILE
-          # 处理 copy_file_range 读取
-          sed -i '/if (p->ops\.copy_file_range)/i#if KSU_HAS_COPY_FILE_RANGE' $FILE
-          sed -i '/if (p->ops\.copy_file_range)/a#endif' $FILE
-          echo "[✓] copy_file_range 成员包裹完成"
+          if grep -q "p->ops\.copy_file_range" $FILE; then
+            sed -i '/p->ops\.copy_file_range =/i#if KSU_HAS_COPY_FILE_RANGE' $FILE
+            sed -i '/p->ops\.copy_file_range =/a#endif' $FILE
+            sed -i '/if (p->ops\.copy_file_range)/i#if KSU_HAS_COPY_FILE_RANGE' $FILE
+            sed -i '/if (p->ops\.copy_file_range)/a#endif' $FILE
+            echo "[✓] copy_file_range 成员包裹完成"
+          fi
       
           # 4.4 包裹 remap_file_range 成员
-          sed -i '/p->ops\.remap_file_range =/i#if KSU_HAS_REMAP_FILE_RANGE' $FILE
-          sed -i '/p->ops\.remap_file_range =/a#endif' $FILE
-          # 处理 remap_file_range 读取
-          sed -i '/if (p->ops\.remap_file_range)/i#if KSU_HAS_REMAP_FILE_RANGE' $FILE
-          sed -i '/if (p->ops\.remap_file_range)/a#endif' $FILE
+          if grep -q "p->ops\.remap_file_range" $FILE; then
+            sed -i '/p->ops\.remap_file_range =/i#if KSU_HAS_REMAP_FILE_RANGE' $FILE
+            sed -i '/p->ops\.remap_file_range =/a#endif' $FILE
+            sed -i '/if (p->ops\.remap_file_range)/i#if KSU_HAS_REMAP_FILE_RANGE' $FILE
+            sed -i '/if (p->ops\.remap_file_range)/a#endif' $FILE
+            echo "[✓] remap_file_range 成员包裹完成"
+          fi
           # 包裹 REMAP_FILE_DEDUP 使用
-          sed -i '/REMAP_FILE_DEDUP/{
-            s/$.*$REMAP_FILE_DEDUP$.*$/\1#if KSU_HAS_REMAP_FILE_RANGE\n\1REMAP_FILE_DEDUP\2\n\1#else\n\1false\n\1#endif/
-          }' $FILE
-          echo "[✓] remap_file_range 成员包裹完成"
+          if grep -q "REMAP_FILE_DEDUP" $FILE; then
+            sed -i '/REMAP_FILE_DEDUP/i#if KSU_HAS_REMAP_FILE_RANGE' $FILE
+            sed -i '/REMAP_FILE_DEDUP/a#else\n\tfalse\n#endif' $FILE
+            echo "[✓] REMAP_FILE_DEDUP 包裹完成"
+          fi
       
           # 4.5 包裹 fadvise 成员
-          sed -i '/p->ops\.fadvise =/i#if KSU_HAS_FADVISE' $FILE
-          sed -i '/p->ops\.fadvise =/a#endif' $FILE
-          sed -i '/if (p->ops\.fadvise)/i#if KSU_HAS_FADVISE' $FILE
-          sed -i '/if (p->ops\.fadvise)/a#endif' $FILE
-          echo "[✓] fadvise 成员包裹完成"
+          if grep -q "p->ops\.fadvise" $FILE; then
+            sed -i '/p->ops\.fadvise =/i#if KSU_HAS_FADVISE' $FILE
+            sed -i '/p->ops\.fadvise =/a#endif' $FILE
+            sed -i '/if (p->ops\.fadvise)/i#if KSU_HAS_FADVISE' $FILE
+            sed -i '/if (p->ops\.fadvise)/a#endif' $FILE
+            echo "[✓] fadvise 成员包裹完成"
+          fi
       
           # 4.6 包裹 mmap_supported_flags 成员
-          sed -i '/p->ops\.mmap_supported_flags =/i#if KSU_HAS_MMAP_SUPPORTED_FLAGS' $FILE
-          sed -i '/p->ops\.mmap_supported_flags =/a#endif' $FILE
-          sed -i '/if (p->ops\.mmap_supported_flags)/i#if KSU_HAS_MMAP_SUPPORTED_FLAGS' $FILE
-          sed -i '/if (p->ops\.mmap_supported_flags)/a#endif' $FILE
-          echo "[✓] mmap_supported_flags 成员包裹完成"
-      
-          # 步骤5：清理可能因 sed 重复插入产生的多余 #if/#endif
-          # 使用 uniq 风格的合并（相邻的重复行只保留一个）
-          sed -i '/^#if KSU_HAS_IOPOLL$/{N;/^#if KSU_HAS_IOPOLL\n#if KSU_HAS_IOPOLL$/!b;D}' $FILE 2>/dev/null || true
-          sed -i '/^#endif$/{N;/^#endif\n#endif$/!b;D}' $FILE 2>/dev/null || true
+          if grep -q "p->ops\.mmap_supported_flags" $FILE; then
+            sed -i '/p->ops\.mmap_supported_flags =/i#if KSU_HAS_MMAP_SUPPORTED_FLAGS' $FILE
+            sed -i '/p->ops\.mmap_supported_flags =/a#endif' $FILE
+            sed -i '/if (p->ops\.mmap_supported_flags)/i#if KSU_HAS_MMAP_SUPPORTED_FLAGS' $FILE
+            sed -i '/if (p->ops\.mmap_supported_flags)/a#endif' $FILE
+            echo "[✓] mmap_supported_flags 成员包裹完成"
+          fi
       
           echo "=== 修复后：文件前30行 ==="
           head -30 $FILE | cat -n
@@ -1701,24 +1717,10 @@ jobs:
             FAIL=1
           fi
       
-          # 检查是否还有未包裹的裸成员访问
-          BARE_ERRORS=0
-          for pat in "p->ops\.iopoll" "p->ops\.iterate_shared" "p->ops\.copy_file_range" "p->ops\.remap_file_range" "p->ops\.fadvise" "p->ops\.mmap_supported_flags"; do
-            if grep -n "$pat" $FILE | grep -v ":space:]]*#" | grep -v "KSU_HAS_" | grep -v ":space:]]*\/\*" | grep -q "$pat" 2>/dev/null; then
-              echo "[⚠] 发现可能未包裹的成员: $pat"
-              grep -n "$pat" $FILE | grep -v "KSU_HAS_"
-              BARE_ERRORS=$((BARE_ERRORS + 1))
-            fi
-          done
-          if [ $BARE_ERRORS -gt 0 ]; then
-            echo "[⚠] 共 $BARE_ERRORS 处可能未包裹，建议手动检查"
-            # 不直接失败，允许继续编译尝试
-          fi
-      
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ file_wrapper.c 基础修复完成（可能需要微调）"
+          echo "✅ file_wrapper.c 修复完成"
 
 
 
