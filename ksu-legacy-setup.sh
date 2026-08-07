@@ -2,10 +2,7 @@
 set -eu
 
 GKI_ROOT=$(pwd)
-# OWNER="KernelSU-Next"
-# REPO="$OWNER"
-REPO="KernelSU-Next" 
-#OWNER="kaho97"
+REPO="KernelSU-Next"
 OWNER="KernelSU-Next"
 
 display_usage() {
@@ -13,7 +10,7 @@ display_usage() {
     echo "  --cleanup:              Cleans up previous modifications made by the script."
     echo "  <commit-or-tag>:        Sets up or updates the KernelSU-Next to specified tag or commit."
     echo "  -h, --help:             Displays this usage information."
-    echo "  (no args):              Sets up or updates the KernelSU-Next environment to the latest tagged version."
+    echo "  (no args):              Sets up or updates the KernelSU-Next environment to the latest non-beta stable tagged version."
 }
 
 initialize_variables() {
@@ -41,37 +38,45 @@ perform_cleanup() {
     fi
 }
 
+# 获取最新正式稳定版tag，自动排除所有beta/rc/test等预发布版本
+get_latest_stable_tag() {
+    # 拉取远程所有tag，过滤带beta、rc、test、preview等预发布标识的版本，按版本号降序取第一个正式版
+    LATEST_STABLE_TAG=$(git ls-remote --tags --refs "https://github.com/$OWNER/$REPO" \
+        | grep -v -iE "beta|rc|test|preview|nightly|dev" \
+        | sort -t '/' -k3 -Vr \
+        | head -1 \
+        | cut -d '/' -f 3)
+    
+    if [ -z "$LATEST_STABLE_TAG" ]; then
+        echo "[!] 未获取到有效正式稳定版tag，自动fallback到legacy分支，不会中断构建流程"
+        return 1
+    fi
+    echo "[+] 筛选到最新正式稳定版tag: $LATEST_STABLE_TAG"
+    return 0
+}
+
 # Sets up or update KernelSU-Next environment
 setup_kernelsu() {
     echo "[+] Setting up $REPO..."
-    # 如果目录不存在就 clone 
-    if [ ! -d "$GKI_ROOT/$REPO" ]; then 
+    # 如果目录不存在就clone
+    if [ ! -d "$GKI_ROOT/$REPO" ]; then
         git clone -b legacy "https://github.com/$OWNER/$REPO" "$GKI_ROOT/$REPO"
-        echo "[+] Repository cloned." 
-    fi 
-    
-    cd "$GKI_ROOT/$REPO"
-    # 清理现场 
-    git stash && echo "[-] Stashed current changes."
-    git pull origin legacy && echo "[+] Repository updated." 
-    
-    # 强制切换到 legacy 分支 
-    git checkout legacy && echo "[-] Checked out legacy branch."
+        echo "[+] Repository cloned."
+    fi
 
-    # === 应用补丁逻辑 === 
-    # # 补丁文件名叫 legacy4.4.patch
-    # PATCH_FILE="$GKI_ROOT/$REPO/legacy_4.4.patch"
-    # if [ -f "$PATCH_FILE" ]; then
-    #     echo "[+] Applying patch: $PATCH_FILE"
-    #     if git apply "$PATCH_FILE"; then 
-    #         echo "[+] Patch applied successfully."
-    #     else 
-    #         echo "[!] git apply failed, trying with patch command..." 
-    #         patch -p1 < "$PATCH_FILE" 
-    #     fi 
-    # else echo "[!] No patch file found at $PATCH_FILE"
-    # fi 
-    # # =====================
+    cd "$GKI_ROOT/$REPO"
+    # 清理现场
+    git stash && echo "[-] Stashed current changes."
+    git pull origin legacy && echo "[+] Repository updated."
+
+    # 切换到最新正式稳定版tag，自动跳过所有预发布版本
+    if get_latest_stable_tag; then
+        git checkout "tags/$LATEST_STABLE_TAG"
+        echo "[+] 已成功切换到最新正式稳定版: $LATEST_STABLE_TAG"
+    else
+        git checkout legacy
+        echo "[!] 已fallback到legacy分支保证构建流程正常执行"
+    fi
 
     cd "$DRIVER_DIR"
     ln -sf "$(realpath --relative-to="$DRIVER_DIR" "$GKI_ROOT/$REPO/kernel")" "kernelsu" && echo "[+] Symlink created."
