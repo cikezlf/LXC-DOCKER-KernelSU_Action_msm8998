@@ -985,6 +985,48 @@ jobs:
           echo "[✓] lsm_hook.c 修复完成"
 
 
+      
+      - name: 【兜底修复7】彻底清除lsm_hook.c残留的pprev和lsm非法引用
+        id: fix-lsm-remaining-err
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
+      
+          echo "--- 修复前第343-350行 ---"
+          sed -n '343,350p' $LSM_FILE | cat -n
+          echo "--- 开始修复 ---"
+      
+          # 修复1：替换残留的pprev引用为prev
+          sed -i 's/hook->list.list.pprev/hook->list.list.prev/g' $LSM_FILE
+          echo "[✓] 残留pprev成员替换完成"
+      
+          # 修复2：完全删除整个lsm成员赋值语句行
+          sed -i '/hook->list.lsm/d' $LSM_FILE
+          echo "[✓] 所有lsm成员赋值行已完全删除"
+      
+          echo "--- 修复后第343-350行 ---"
+          sed -n '343,350p' $LSM_FILE | cat -n
+      
+          # 双重校验
+          FAIL=0
+          if grep -q "hook->list.list.pprev" $LSM_FILE; then
+            echo "[❌] 仍残留pprev非法引用"
+            FAIL=1
+          else
+            echo "[✅] pprev残留完全清除"
+          fi
+          if grep -q "hook->list.lsm" $LSM_FILE; then
+            echo "[❌] 仍残留lsm非法引用"
+            FAIL=1
+          else
+            echo "[✅] lsm成员引用完全清除"
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ 两处残留错误全部修复完成"
+
 
 
 
