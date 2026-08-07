@@ -743,8 +743,8 @@ jobs:
             exit 1
           fi
 
-      - name: 【最终全量校验】KernelSU全驱动目录编译验证
-        id: ksu-full-dir-final-verify
+      - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
+        id: ksu-dir-final-build-verify
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
@@ -753,23 +753,33 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
       
-          set +e
-          make O=out CC=clang LD=ld.lld drivers/kernelsu/ 2>&1 | tee ksu_full_final_build.log
-          KSU_BUILD_RET=$?
-          set -e
-      
-          TOTAL_ERROR=$(grep -c "error:" ksu_full_final_build.log 2>/dev/null | tail -1)
-          TOTAL_ERROR=${TOTAL_ERROR:-0}
-          echo "[✓] KernelSU全驱动目录总错误数量：$TOTAL_ERROR"
-          echo "[✓] make返回状态码：$KSU_BUILD_RET"
-      
-          if [ "$KSU_BUILD_RET" -eq 0 ] && [ "$TOTAL_ERROR" -eq 0 ]; then
-            echo "[✅ 校验通过] KernelSU 全目录编译100%成功，所有4.4内核版本兼容问题已彻底解决"
-          else
-            echo "[❌ 校验失败] KernelSU目录仍存在编译错误"
-            grep "error:" ksu_full_final_build.log || true
+          # 关键修复1：先执行 olddefconfig 静默更新配置，彻底消灭 silentoldconfig 交互式弹窗
+          make O=out CC=clang LD=ld.lld olddefconfig 2>&1 | tee ksu_olddefconfig.log
+          if [ $? -ne 0 ]; then
+            echo "[❌ 校验失败] olddefconfig 配置同步异常"
             exit 1
           fi
+          echo "[✓] olddefconfig 已静默更新所有新配置项，消除交互中断风险"
+      
+          # 关键修复2：使用 PIPESTATUS 捕获 make 真实退出码，不依赖被 tee 覆盖的 $?
+          set +e
+          make O=out CC=clang LD=ld.lld drivers/kernelsu/ 2>&1 | tee ksu_sulog_final_full.log
+          BUILD_RET=${PIPESTATUS}
+          set -e
+      
+          TOTAL_ERR=$(grep -c "error:" ksu_sulog_final_full.log 2>/dev/null | tail -1)
+          TOTAL_ERR=${TOTAL_ERR:-0}
+          echo "[✓] KernelSU全目录总错误数量：$TOTAL_ERR"
+          echo "[✓] make真实退出码（PIPESTATUS）：$BUILD_RET"
+      
+          if [ "$BUILD_RET" -eq 0 ] && [ "$TOTAL_ERR" -eq 0 ]; then
+            echo "[✅ 校验通过] KernelSU全目录编译完全成功，所有4.4内核版本兼容问题已彻底解决"
+          else
+            echo "[❌ 校验失败] KernelSU目录仍存在残留编译错误"
+            grep "error:" ksu_sulog_final_full.log || true
+            exit 1
+          fi
+
 
 
 
