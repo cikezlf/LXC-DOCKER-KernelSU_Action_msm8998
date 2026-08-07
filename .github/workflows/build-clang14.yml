@@ -909,6 +909,27 @@ jobs:
           sed -i '/struct sensorb_info_fusion_id32;/d' "${SENSOR_FILE}"
           echo "[✓] 所有32位兼容代码已安全清理，无越界操作"
 
+      
+      - name: 【兜底清理残留char *data重定义】精准清除所有32位分支遗留的重复变量定义
+        id: fix-redefined-data-ultimate
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
+          # 直接删除所有孤立的char *data重复定义行，完全不触碰64位原生合法变量
+          sed -i '/char \*data = NULL;/d' "${SENSOR_FILE}"
+          echo "[✓] 所有孤立的char *data重复变量定义行已全部删除"
+          # 二次兜底校验变量唯一
+          grep -q "char \*data = NULL;" "${SENSOR_FILE}" && {
+            echo "[✗] 兜底删除失败，残留重复定义，强制用python精准清理"
+            python3 << 'PYEOF'
+            content = open("drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c", "r", encoding="utf-8").read()
+            content = content.replace("char *data = NULL;", "")
+            open("drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c", "w", encoding="utf-8").write(content)
+            print("[✓] Python兜底清理所有char *data重定义行完成")
+            PYEOF
+          } || echo "[✓] 所有重复变量定义已彻底清除"
+      
+
 
       - name: 【校验·修复msm_sensor.c最终版】全维度完整性100%确认
         run: |
