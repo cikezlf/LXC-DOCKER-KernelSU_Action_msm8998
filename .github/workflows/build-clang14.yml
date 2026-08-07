@@ -1027,6 +1027,37 @@ jobs:
           fi
           echo "✅ 两处残留错误全部修复完成"
 
+      
+      - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
+        id: fix-lsm-pointer-type
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
+      
+          echo "--- 修复前第340-350行 ---"
+          sed -n '340,350p' $LSM_FILE | cat -n
+          echo "--- 开始修复 ---"
+      
+          # 精准删除错误的二级指针赋值语句
+          sed -i '/hook->list.list.prev = \&head->next;/d' $LSM_FILE
+          echo "[✓] 已删除类型不兼容的错误赋值行"
+      
+          # 补全标准list_head空链表初始化逻辑，完全兼容一级指针结构
+          sed -i '344a\        hook->list.list.prev = head;' $LSM_FILE
+          echo "[✓] 已替换为合法list_head一级指针赋值，将prev指向链表头节点"
+      
+          echo "--- 修复后第340-350行 ---"
+          sed -n '340,350p' $LSM_FILE | cat -n
+      
+          # 双重校验
+          if grep -q "hook->list.list.prev = &head->next" $LSM_FILE; then
+            echo "[❌] 错误赋值行残留，终止构建"
+            exit 1
+          fi
+          if grep -q "hook->list.list.prev = head;" $LSM_FILE; then
+            echo "[✅ 校验通过] 类型完全匹配，无二级指针赋值冲突"
+          fi
+
 
 
 
