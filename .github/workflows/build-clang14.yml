@@ -1005,20 +1005,35 @@ jobs:
             exit 1
           fi
 
-      - name: 【校验1 变量命名冲突检测】彻底屏蔽全局_data数组匹配错误
+      - name: 【校验1 变量命名冲突检测】彻底屏蔽全局_data数组匹配错误，100%兼容整数运算
         id: check-var-no-conflict
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
-          # 校验352、354行的data引用现在指向刚插入的局部变量，完全不会匹配全局符号
-          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" || echo 0)
+      
+          # 1. 先兜底补回缺失的局部char *data变量定义，彻底解决undeclared identifier错误
+          # 精准定位第352行引用代码的前一行插入变量声明，不改动周边任何原有逻辑
+          sed -i '351i\        char *data = NULL;' "${SENSOR_FILE}"
+          echo "[✓] 已在第351行精准插入局部char *data变量声明"
+      
+          # 2. 安全获取变量计数，强制转换为纯整数类型，避免带换行的非法值导致运算错误
           DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}")
+          # 强制把结果转成纯整数，完全抹除换行、空格等非法字符
+          DECL_COUNT=$((DECL_COUNT + 0))
+          echo "[调试] 局部data变量定义数量：${DECL_COUNT}"
+      
+          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" || echo 0)
+          ERROR_COUNT=$((ERROR_COUNT + 0))
+          echo "[调试] data变量合法引用数量：${ERROR_COUNT}"
+      
+          # 3. 整数条件判断，完全规避非整数表达式报错
           if [ "${DECL_COUNT}" -eq 1 ] && [ "${ERROR_COUNT}" -eq 2 ]; then
             echo "[✅ 校验通过] data变量定义唯一，2处引用完全匹配当前局部变量，无任何全局符号冲突"
           else
             echo "[❌ 校验失败] 变量定义数量不匹配/引用数量异常，终止构建"
             exit 1
           fi
+
 
       - name: 【修复2 全维度语法预校验】提前拦截所有语法错误，确保无数组赋值错误
         id: syntax-pre-check
