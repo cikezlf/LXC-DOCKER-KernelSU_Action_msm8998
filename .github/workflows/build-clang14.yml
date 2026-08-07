@@ -1027,6 +1027,35 @@ jobs:
           fi
           echo "✅ 两处残留错误全部修复完成"
 
+
+      - name: 【兜底修复8】修复setuid_hook.c中sched/signal.h头文件4.4内核兼容
+        id: fix-setuid-header
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SETUID_FILE=drivers/kernelsu/hook/setuid_hook.c
+      
+          echo "--- 修复前第1-15行 ---"
+          head -15 $SETUID_FILE | cat -n
+          echo "--- 开始修复 ---"
+      
+          # 将直接include替换为条件编译，兼容4.4内核
+          sed -i 's|#include <linux/sched/signal.h>|#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)\n#include <linux/sched/signal.h>\n#else\n#include <linux/sched.h>\n#endif|' $SETUID_FILE
+          echo "[✓] 已替换为内核版本条件编译，4.4自动使用<linux/sched.h>"
+      
+          echo "--- 修复后第1-20行 ---"
+          head -20 $SETUID_FILE | cat -n
+      
+          # 校验
+          if grep -q "#include <linux/sched/signal.h>" $SETUID_FILE; then
+            if grep -q "LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)" $SETUID_FILE; then
+              echo "[✅ 校验通过] 条件编译已正确包裹，4.4内核将使用sched.h"
+            else
+              echo "[❌] 条件编译未生效"
+              exit 1
+            fi
+          fi
+
+
       
       - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
         id: fix-lsm-pointer-type
