@@ -1055,59 +1055,56 @@ jobs:
             fi
           fi
 
-      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容（6个错误）
-        id: fix-syscall-bridge-final
+      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容（4个错误）
+        id: fix-syscall-bridge-final-v2
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           BRIDGE_FILE=drivers/kernelsu/hook/syscall_event_bridge.c
       
-          echo "--- 修复前头文件区域（前25行） ---"
-          head -25 $BRIDGE_FILE | cat -n
+          echo "--- 修复前头文件区域（前30行） ---"
+          head -30 $BRIDGE_FILE | cat -n
       
-          # 关键步骤：确保 version.h 在所有版本判断宏之前被包含
-          # 如果文件开头已有 #if LINUX_VERSION_CODE 但缺少 version.h，必须先删除错误的宏插入
-          if head -1 $BRIDGE_FILE | grep -q "LINUX_VERSION_CODE"; then
-            echo "[!] 检测到文件开头有未受保护的版本宏，先清除"
-            sed -i '1{/LINUX_VERSION_CODE/d}' $BRIDGE_FILE
-            sed -i '1{/define untagged_addr/d}' $BRIDGE_FILE
-            sed -i '1{/^$/d}' $BRIDGE_FILE
+          # 步骤1：清理上次修复可能残留的错误宏定义
+          # 删除手动添加的 untagged_addr 兼容宏（arm64 4.4内核原生已有）
+          sed -i '/#define untagged_addr(addr) (addr)/d' $BRIDGE_FILE
+          # 删除孤立的版本条件编译行（可能残留的 #if / #endif）
+          if grep -q "LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)" $BRIDGE_FILE; then
+            sed -i '/LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)/d' $BRIDGE_FILE
+            # 删除对应的 #endif
+            sed -i '/^#endif$/{
+              /LINUX_VERSION_CODE/!{
+                N
+                /\n$/d
+              }
+            }' $BRIDGE_FILE 2>/dev/null || true
+            echo "[✓] 已清理残留的兼容宏和条件编译指令"
           fi
       
-          # 步骤1：获取第一个 #include 行号作为插入锚点
-          FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          if [ -z "$FIRST_INC" ]; then
-            echo "[❌] 未找到#include行"
-            exit 1
-          fi
-          echo "[*] 锚点：第${FIRST_INC}行"
-      
-          # 步骤2：在第一个 #include 之前插入 version.h（确保宏定义先于所有条件编译）
+          # 步骤2：确保 version.h 存在（清除后重新检查）
           if ! grep -q "#include <linux/version.h>" $BRIDGE_FILE; then
+            FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
             sed -i "${FIRST_INC}i\#include <linux/version.h>" $BRIDGE_FILE
-            echo "[✓] 已插入 linux/version.h（解决 LINUX_VERSION_CODE/KERNEL_VERSION 未定义）"
+            echo "[✓] 已插入 linux/version.h"
           else
             echo "[✓] version.h 已存在"
           fi
       
-          # 步骤3：在第一个 #include 之后插入其他缺失头文件
-          # 重新获取锚点（上一步插入后行号已变化）
-          FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
-      
+          # 步骤3：确保 uaccess.h 存在
           if ! grep -q "#include <linux/uaccess.h>" $BRIDGE_FILE; then
+            FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
             sed -i "${FIRST_INC}a\#include <linux/uaccess.h>" $BRIDGE_FILE
-            echo "[✓] 已插入 linux/uaccess.h（解决 strncpy_from_user 隐式声明）"
+            echo "[✓] 已插入 linux/uaccess.h"
+          else
+            echo "[✓] uaccess.h 已存在"
           fi
       
+          # 步骤4：确保 jump_label.h 存在（解决 ksud_execve_key 未声明）
           if ! grep -q "#include <linux/jump_label.h>" $BRIDGE_FILE; then
+            FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
             sed -i "${FIRST_INC}a\#include <linux/jump_label.h>" $BRIDGE_FILE
-            echo "[✓] 已插入 linux/jump_label.h（解决 DEFINE_STATIC_KEY_TRUE/ksud_execve_key 宏展开）"
-          fi
-      
-          # 步骤4：在 version.h 之后插入 untagged_addr 兼容宏
-          VER_LINE=$(grep -n "linux/version.h" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          if ! grep -q "define untagged_addr" $BRIDGE_FILE; then
-            sed -i "${VER_LINE}a\\\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4,11,0)\n#define untagged_addr(addr) (addr)\n#endif" $BRIDGE_FILE
-            echo "[✓] 已插入 untagged_addr 兼容宏（紧随 version.h，确保宏可用）"
+            echo "[✓] 已插入 linux/jump_label.h（解决 DEFINE_STATIC_KEY_TRUE 宏展开）"
+          else
+            echo "[✓] jump_label.h 已存在"
           fi
       
           echo "--- 修复后头文件区域（前30行） ---"
@@ -1115,6 +1112,16 @@ jobs:
       
           # 校验
           FAIL=0
+      
+          # 校验1：确认没有残留的自定义 untagged_addr
+          if grep -q "#define untagged_addr(addr) (addr)" $BRIDGE_FILE; then
+            echo "[❌] 仍残留自定义 untagged_addr 宏，与内核原生定义冲突"
+            FAIL=1
+          else
+            echo "[✅ 无自定义 untagged_addr 宏，将使用内核原生定义]"
+          fi
+      
+          # 校验2：确认所有必需头文件存在
           for hdr in "linux/version.h" "linux/uaccess.h" "linux/jump_label.h"; do
             if grep -q "#include <${hdr}>" $BRIDGE_FILE; then
               echo "[✅ ${hdr} 已就位]"
@@ -1124,26 +1131,10 @@ jobs:
             fi
           done
       
-          if grep -q "define untagged_addr" $BRIDGE_FILE; then
-            echo "[✅ untagged_addr 兼容宏已就位]"
-          else
-            echo "[❌ untagged_addr 兼容宏缺失]"
-            FAIL=1
-          fi
-      
-          # 验证 version.h 在所有条件编译之前
-          FIRST_COND=$(grep -n "#if\|#ifdef\|#ifndef" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          FIRST_VER=$(grep -n "linux/version.h" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          if [ "$FIRST_VER" -lt "$FIRST_COND" ]; then
-            echo "[✅ version.h 在所有条件编译之前，宏定义顺序正确]"
-          else
-            echo "[⚠] 顺序可能不正确，请检查"
-          fi
-      
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ syscall_event_bridge.c 全部6个错误修复完成"
+          echo "✅ syscall_event_bridge.c 全部4个错误修复完成"
 
 
 
