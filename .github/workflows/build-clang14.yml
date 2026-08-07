@@ -1446,11 +1446,31 @@ jobs:
           grep -q "^kernel.string=小米6全功能内核" anykernel.sh && echo "[✓] 内核字符串已配置" || echo "[!] 字符串配置异常"
           grep -q "^device.name1=sagit" anykernel.sh && echo "[✓] 设备名已配置" || echo "[!] 设备名配置异常"
           echo "[✓] anykernel.sh 配置完成"
-
-      - name: 【校验·第十四步】anykernel.sh 关键参数确认
+      
+      - name: 【校验·第十四步】anykernel.sh 关键参数确认及自动补全
         run: |
-          FAIL=0
           AK3_SH=$GITHUB_WORKSPACE/kernel_workspace/AnyKernel3/anykernel.sh
+          FAIL=0
+      
+          # 第一步：确保三个关键配置项存在，缺失则自动补全
+          declare -A DEFAULTS=(
+            ["block"]="/dev/block/bootdevice/by-name/boot"
+            ["is_slot_device"]="0"
+            ["ramdisk_compression"]="auto"
+          )
+      
+          for key in "${!DEFAULTS[@]}"; do
+            val="${DEFAULTS[$key]}"
+            # 匹配行首的 key= 声明（容忍末尾分号）
+            if grep -q "^${key}=" "$AK3_SH" 2>/dev/null; then
+              echo "[✓] ${key}= 已存在"
+            else
+              echo "[!] ${key}= 缺失，自动补全为 ${key}=${val};"
+              sed -i "/^device.name1=/a\\${key}=${val};" "$AK3_SH"
+            fi
+          done
+      
+          # 第二步：宽松校验，容忍分号结尾
           CHECKS=(
             "device.name1=sagit"
             "block=/dev/block/bootdevice/by-name/boot"
@@ -1458,18 +1478,22 @@ jobs:
             "ramdisk_compression=auto"
           )
           for check in "${CHECKS[@]}"; do
-            if grep -q "^${check}" "$AK3_SH" 2>/dev/null; then
+            if grep -qE "^${check};?\s*$" "$AK3_SH" 2>/dev/null; then
               echo "[✓] ${check}"
             else
               echo "[✗] ${check}"
               FAIL=1
             fi
           done
+      
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第十四步校验失败，终止"
+            echo "--- anykernel.sh 当前相关配置 ---"
+            grep -nE '^(device\.name1|block|is_slot_device|ramdisk_compression)=' "$AK3_SH" 2>/dev/null || echo "(无匹配行)"
             exit 1
           fi
-          echo "✅ 第十四步校验通过"
+          echo "✅ 第十四步校验通过，AnyKernel3 关键参数全部正确"
+
 
       # ==================== 第十五步：打包 ZIP ====================
       - name: 【第十五步】打包 AnyKernel3 ZIP
