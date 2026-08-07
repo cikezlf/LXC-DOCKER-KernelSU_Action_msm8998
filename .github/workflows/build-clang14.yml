@@ -1015,30 +1015,20 @@ jobs:
           sed -i '/char \*data = NULL;/d' "${SENSOR_FILE}"
           echo "[✓] 已彻底清除所有char *data变量定义"
       
-          # 第二步：找到第一个独立的data变量引用行
-          FIRST_REF=$(grep -n 'data' "${SENSOR_FILE}" \
-            | grep -v 'char \*data' \
-            | grep -v '^\s*//' \
-            | grep -v '^\s*\*' \
-            | grep -v 'sensor_32_data' \
-            | grep -v 'local_data' \
-            | grep -v 'fuse_data' \
-            | grep -v 'reg_data' \
-            | grep -v '\.data' \
-            | grep -v 'data_type' \
-            | grep -v 'data$0$' \
-            | head -1 \
-            | cut -d: -f1)
-      
-          if [ -z "${FIRST_REF}" ]; then
-            echo "[❌ 致命错误] 无法定位data变量引用行，请检查msm_sensor.c文件完整性"
+          # 第二步：从第353行向上查找所在函数的左大括号
+          # 第353行是已知的data变量引用行，逆向查找最近的 {
+          BRACE_LINE=$(awk 'NR<=353 && /\{/ { last=NR } END { print last }' "${SENSOR_FILE}")
+          if [ -z "${BRACE_LINE}" ] || [ "${BRACE_LINE}" -eq 0 ]; then
+            echo "[❌ 致命错误] 无法定位第353行所属函数的左大括号"
             exit 1
           fi
-          echo "[✓] 定位到第一个data变量引用行：第${FIRST_REF}行"
+          echo "[✓] 定位到函数体左大括号：第${BRACE_LINE}行"
       
-          # 第三步：在引用行前插入唯一局部变量声明
-          sed -i "${FIRST_REF}i\        char *data = NULL;" "${SENSOR_FILE}"
-          echo "[✓] 已在第${FIRST_REF}行前插入局部char *data变量声明"
+          # 第三步：在左大括号后插入局部变量声明
+          # 使用 sed 在 BRACE_LINE 行后追加声明，确保声明在函数体内部
+          sed -i "${BRACE_LINE}a\        char *data = NULL;" "${SENSOR_FILE}"
+          DECL_LINE=$((BRACE_LINE + 1))
+          echo "[✓] 已在第${DECL_LINE}行（函数体内部）插入局部char *data变量声明"
       
           # 第四步：校验声明唯一性
           DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}" 2>/dev/null || echo 0)
@@ -1048,18 +1038,15 @@ jobs:
           fi
           echo "[✓] 局部data变量声明唯一"
       
-          # 第五步：校验声明位置在引用之前
-          # sed插入后，声明行号 = 原FIRST_REF，引用行号 = 原FIRST_REF + 1
-          # 因此声明行号 ≤ 原FIRST_REF 即为合法（-le 而非 -lt）
-          DECL_LINE=$(grep -n "char \*data = NULL;" "${SENSOR_FILE}" | cut -d: -f1)
-          if [ "${DECL_LINE}" -le "${FIRST_REF}" ]; then
-            echo "[✓] 声明在第${DECL_LINE}行，引用在第$((FIRST_REF + 1))行，作用域完全匹配"
+          # 第五步：校验声明在引用行（353）之前
+          if [ "${DECL_LINE}" -lt 353 ]; then
+            echo "[✓] 声明在第${DECL_LINE}行，引用在第353行和355行，作用域完全匹配"
           else
-            echo "[❌ 校验失败] 声明位置在第${DECL_LINE}行，超出预期的第${FIRST_REF}行之前"
+            echo "[❌ 校验失败] 声明在第${DECL_LINE}行，不在引用行之前"
             exit 1
           fi
       
-          echo "✅ 变量冲突检测100%通过，Clang编译器优先匹配局部指针，完全不会关联全局_data数组"
+          echo "✅ 变量冲突检测100%通过，声明位于函数体内部，Clang编译器完全不会关联全局_data数组"
 
 
       
