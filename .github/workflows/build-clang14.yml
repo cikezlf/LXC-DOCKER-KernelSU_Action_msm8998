@@ -1055,87 +1055,60 @@ jobs:
             fi
           fi
 
-      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容（3个错误）
-        id: fix-syscall-bridge-final-v3
+      - name: 【兜底修复9 最终版】修复syscall_event_bridge.c的4.4内核兼容
+        id: fix-syscall-bridge-final-v4
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           BRIDGE_FILE=drivers/kernelsu/hook/syscall_event_bridge.c
       
-          echo "=== 修复前：文件前10行 + 第45-50行 ==="
+          echo "=== 修复前：文件前10行 ==="
           head -10 $BRIDGE_FILE | cat -n
-          echo "---"
-          sed -n '45,50p' $BRIDGE_FILE | cat -n
       
-          # 步骤1：清理之前所有修复可能残留的垃圾行
-          # 删除孤立的 #if / #endif 条件编译残留
+          # 步骤1：清理残留
           sed -i '/^#if LINUX_VERSION_CODE/d' $BRIDGE_FILE
           sed -i '/^#define untagged_addr/d' $BRIDGE_FILE
-          # 删除孤立的 #endif（只删除独立成行的）
           sed -i '/^#endif$/d' $BRIDGE_FILE
-          echo "[✓] 已清理残留宏定义和条件编译指令"
+          echo "[✓] 已清理残留"
       
-          # 步骤2：获取当前文件头部，一次性重建正确的头文件区域
-          # 先提取文件第1行到第一个 #include 之间的内容（通常是注释或空行）
-          # 然后在第一个 #include 之前强制插入所有缺失的头文件
-      
+          # 步骤2：定位第一个 #include 并插入缺失头文件
           FIRST_INC=$(grep -n "^#include" $BRIDGE_FILE | head -1 | cut -d: -f1)
-          echo "[*] 第一个 #include 在第 ${FIRST_INC} 行"
+          echo "[*] 锚点：第${FIRST_INC}行"
       
-          # 强制插入 version.h（如果缺失）
           if ! grep -q "linux/version.h" $BRIDGE_FILE; then
             sed -i "${FIRST_INC}i\#include <linux/version.h>" $BRIDGE_FILE
-            echo "[✓] 已插入 linux/version.h"
             FIRST_INC=$((FIRST_INC + 1))
-          else
-            echo "[✓] version.h 已存在"
+            echo "[✓] 已插入 linux/version.h"
           fi
       
-          # 强制插入 jump_label.h（如果缺失）——这是解决本问题的关键
           if ! grep -q "linux/jump_label.h" $BRIDGE_FILE; then
             sed -i "${FIRST_INC}i\#include <linux/jump_label.h>" $BRIDGE_FILE
-            echo "[✓] 已插入 linux/jump_label.h（解决 DEFINE_STATIC_KEY_TRUE 宏展开）"
             FIRST_INC=$((FIRST_INC + 1))
+            echo "[✓] 已插入 linux/jump_label.h"
           else
             echo "[✓] jump_label.h 已存在"
           fi
       
-          # 强制插入 uaccess.h（如果缺失）
           if ! grep -q "linux/uaccess.h" $BRIDGE_FILE; then
             sed -i "${FIRST_INC}i\#include <linux/uaccess.h>" $BRIDGE_FILE
             echo "[✓] 已插入 linux/uaccess.h"
-          else
-            echo "[✓] uaccess.h 已存在"
           fi
       
-          echo "=== 修复后：文件前15行 + 第45-50行 ==="
+          echo "=== 修复后：文件前15行 ==="
           head -15 $BRIDGE_FILE | cat -n
-          echo "---"
-          sed -n '45,50p' $BRIDGE_FILE | cat -n
       
-          # 三重校验
+          # 步骤3：校验（使用宽松匹配，兼容双引号和尖括号）
           FAIL=0
-      
-          # 校验1：jump_label.h 必须存在
-          if grep -q "#include <linux/jump_label.h>" $BRIDGE_FILE; then
-            echo "[✅ jump_label.h 已就位]"
-          else
-            echo "[❌ jump_label.h 缺失，无法修复 ksud_execve_key 错误]"
-            FAIL=1
-          fi
-      
-          # 校验2：确认 DEFINE_STATIC_KEY_TRUE 所在行能被正确解析
-          # 用 gcc -E 预处理器测试宏展开
-          if [ -f $BRIDGE_FILE ]; then
-            echo "[*] 测试宏展开..."
-            # 提取第45行附近的内容，检查 DEFINE_STATIC_KEY_TRUE 是否可解析
-            if grep -n "DEFINE_STATIC_KEY_TRUE" $BRIDGE_FILE; then
-              echo "[✓] DEFINE_STATIC_KEY_TRUE 宏调用存在，依赖 jump_label.h 完成展开"
+          for hdr in "linux/version.h" "linux/jump_label.h" "linux/uaccess.h"; do
+            if grep -q "${hdr}" $BRIDGE_FILE; then
+              echo "[✅ ${hdr} 已就位]"
+            else
+              echo "[❌ ${hdr} 缺失]"
+              FAIL=1
             fi
-          fi
+          done
       
-          # 校验3：无残留自定义宏
-          if grep -q "#define untagged_addr" $BRIDGE_FILE; then
-            echo "[❌] 仍有自定义 untagged_addr 宏残留"
+          if grep -q "define untagged_addr" $BRIDGE_FILE; then
+            echo "[❌ 仍有自定义 untagged_addr 宏残留]"
             FAIL=1
           else
             echo "[✅ 无自定义宏残留]"
@@ -1144,7 +1117,7 @@ jobs:
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ syscall_event_bridge.c 全部3个错误修复完成"
+          echo "✅ syscall_event_bridge.c 头文件修复完成"
 
 
 
