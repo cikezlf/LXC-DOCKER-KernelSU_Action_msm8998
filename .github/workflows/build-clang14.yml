@@ -887,60 +887,61 @@ jobs:
           echo "[✓] 所有高版本函数兼容修复已完成"
 
       
-      - name: 【兜底修复6】修复lsm_hook.c的hlist→list_head兼容问题（4.4内核LSM API差异）
-        id: fix-lsm-hook-compat
+      - name: 【兜底修复6-最终版】修复lsm_hook.c的hlist/list_head兼容问题（perl跨行处理）
+        id: fix-lsm-hook-compat-final
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
       
-          echo "========== 修复前lsm_hook.c关键区域 =========="
-          grep -n -E "(hlist_for_each|pprev|->first|->lsm|hlist_head|hlist_node)" $LSM_FILE | head -30
-          echo "========== 结束 =========="
+          echo "========== 修复前状态 =========="
+          echo "--- hlist_for_each_entry 残留 ---"
+          grep -c "hlist_for_each_entry" $LSM_FILE || echo "0处"
+          echo "--- ->lsm 残留 ---"
+          grep -c "\->lsm" $LSM_FILE || echo "0处"
+          echo "--- ->pprev 残留 ---"
+          grep -c "\->pprev" $LSM_FILE || echo "0处"
+          echo "========== 开始修复 =========="
       
-          # 1. 替换hlist遍历宏为list遍历宏
-          sed -i 's/hlist_for_each_entry(/list_for_each_entry(/g' $LSM_FILE
-          sed -i 's/hlist_for_each_entry_safe(/list_for_each_entry_safe(/g' $LSM_FILE
-          echo "[✓] hlist_for_each_entry → list_for_each_entry"
+          # 1. 使用 perl -0777 跨行替换 hlist_for_each_entry → list_for_each_entry
+          perl -0777 -i -pe 's/hlist_for_each_entry\s*\(/list_for_each_entry(/g' $LSM_FILE
+          perl -0777 -i -pe 's/hlist_for_each_entry_safe\s*\(/list_for_each_entry_safe(/g' $LSM_FILE
+          echo "[✓] hlist_for_each_entry → list_for_each_entry（含跨行）"
       
-          # 2. 替换hlist操作函数
-          sed -i 's/hlist_add_head_rcu/list_add_rcu/g' $LSM_FILE
-          sed -i 's/hlist_del_rcu/list_del_rcu/g' $LSM_FILE
+          # 2. 替换 hlist 操作函数
+          perl -0777 -i -pe 's/hlist_add_head_rcu/list_add_rcu/g' $LSM_FILE
+          perl -0777 -i -pe 's/hlist_del_rcu/list_del_rcu/g' $LSM_FILE
           echo "[✓] hlist_add_head_rcu/hlist_del_rcu → list版本"
       
-          # 3. 替换hlist_head/hlist_node类型声明
+          # 3. 替换类型声明
           sed -i 's/struct hlist_head/struct list_head/g' $LSM_FILE
           sed -i 's/struct hlist_node/struct list_head/g' $LSM_FILE
-          echo "[✓] hlist_head/hlist_node → list_head"
+          echo "[✓] 类型声明 hlist_head/hlist_node → list_head"
       
-          # 4. 修复成员名：pprev → prev
+          # 4. 替换成员名
           sed -i 's/->pprev/->prev/g' $LSM_FILE
-          echo "[✓] pprev → prev"
-      
-          # 5. 修复成员名：first → next
           sed -i 's/->first/->next/g' $LSM_FILE
-          echo "[✓] first → next"
+          echo "[✓] pprev→prev, first→next"
       
-          # 6. 修复lsm成员：4.4内核security_hook_list无lsm字段
-          if grep -q "->lsm" $LSM_FILE; then
-            echo "发现lsm成员引用，进行修复..."
-            LAST_INC=$(grep -n '#include' $LSM_FILE | tail -1 | cut -d: -f1)
-            printf '\n/* 4.4内核兼容：security_hook_list无lsm成员 */\n' > /tmp/lsm_fix.txt
-            printf '#define HOOK_LSM(entry) "unknown"\n' >> /tmp/lsm_fix.txt
-            sed -i "${LAST_INC}r /tmp/lsm_fix.txt" $LSM_FILE
-            sed -i 's/entry->lsm/HOOK_LSM(entry)/g' $LSM_FILE
-            sed -i 's/hook->lsm/HOOK_LSM(hook)/g' $LSM_FILE
-            rm -f /tmp/lsm_fix.txt
-            echo "[✓] lsm成员引用已修复"
-          else
-            echo "[✓] 无lsm成员引用，跳过"
-          fi
+          # 5. 处理 lsm 成员（4.4内核security_hook_list无此字段）
+          # 先删除赋值语句
+          sed -i '/->lsm\s*=/d' $LSM_FILE
+          # 再将引用替换为 NULL
+          sed -i 's/->lsm/NULL/g' $LSM_FILE
+          echo "[✓] lsm成员引用已清除（赋值行删除，引用替换为NULL）"
       
           echo ""
-          echo "========== 修复后lsm_hook.c关键区域 =========="
-          grep -n -E "(list_for_each_entry|->prev|->next|HOOK_LSM)" $LSM_FILE | head -20
-          echo "========== 结束 =========="
-      
-          echo "[✓] lsm_hook.c的4.4内核LSM兼容修复已完成"
+          echo "========== 修复后校验 =========="
+          echo "--- hlist_for_each_entry 残留 ---"
+          grep -c "hlist_for_each_entry" $LSM_FILE && echo "[❌] 仍有残留!" || echo "[✅] 0处残留"
+          echo "--- ->lsm 残留 ---"
+          grep -c "\->lsm" $LSM_FILE && echo "[❌] 仍有残留!" || echo "[✅] 0处残留"
+          echo "--- ->pprev 残留 ---"
+          grep -c "\->pprev" $LSM_FILE && echo "[❌] 仍有残留!" || echo "[✅] 0处残留"
+          echo "--- ->first 残留 ---"
+          grep -c "\->first" $LSM_FILE && echo "[⚠] 注意：first可能来自宏展开" || echo "[✅] 0处残留"
+          echo "--- 修复后关键区域预览 ---"
+          grep -n -E "(list_for_each_entry|->prev|->next|NULL)" $LSM_FILE | head -20
+          echo "========== 完成 =========="
 
 
 
