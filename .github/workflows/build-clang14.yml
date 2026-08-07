@@ -1906,40 +1906,18 @@ jobs:
 
 
 
-      - name: 【终极修复symbol_resolver第57行缺分号错误】
-        id: fix-symbol-resolver-semicolon-final
+      - name: symbol_resolver.c单文件编译预校验
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          TARGET_FILE=drivers/kernelsu/ksu/utils/symbol_resolver.c
-          
-          # 1. 先打印第55-60行当前内容，确认目标声明的实际形态
-          echo "=== 修复前第55-60行内容 ==="
-          sed -n '55,60p' $TARGET_FILE | cat -n
-          echo "=== 结束 ==="
-          
-          # 2. 方案一：精准定位第57行，直接在行尾追加分号，跳过所有内容匹配判断
-          sed -i '57s/$/;/' $TARGET_FILE
-          echo "[✓] 已强制在第57行行尾追加分号"
-          
-          # 3. 第一层校验：确认第57行末尾已存在分号
-          LINE_57_CONTENT=$(sed -n '57p' $TARGET_FILE)
-          if [[ $LINE_57_CONTENT =~ ;$ ]]; then
-            echo "[✅ 第一层校验通过] 第57行末尾已检测到分号"
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          export ARCH=arm64
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make O=out CC=clang LD=ld.lld drivers/kernelsu/infra/symbol_resolver.o 2>&1
+          if [ $? -eq 0 ]; then
+            echo "[✅ symbol_resolver.o 单文件编译完全成功，无任何语法错误]"
           else
-            echo "[!] 第一层修复失败，触发方案二兜底"
-            # 方案二：删除原第57行，重新写入带分号的完整行
-            sed -i '57d' $TARGET_FILE
-            # 自动适配KernelSU-Next中symbol_resolver.c的标准第57行声明内容，插入合法声明
-            sed -i '56a\        unsigned long (*ksu_kallsyms_lookup_name)(const char *name);' $TARGET_FILE
-            echo "[✓] 已删除原错误第57行，重新写入完整带分号的声明语句"
-          fi
-          
-          # 4. 最终双重校验
-          FINAL_LINE_57=$(sed -n '57p' $TARGET_FILE)
-          if [[ $FINAL_LINE_57 =~ ;$ ]]; then
-            echo "[✅ 终极校验通过] 第57行分号补全100%生效，完整行内容：$FINAL_LINE_57"
-          else
-            echo "[❌ 修复失败，终止构建调试]"
+            echo "[❌ 仍有残留编译错误，请查看上方日志输出定位剩余问题"
             exit 1
           fi
 
