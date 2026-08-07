@@ -1004,45 +1004,29 @@ jobs:
             echo "[❌ 校验失败] 局部变量定义插入失败，终止构建"
             exit 1
           fi
-
+      
       - name: 【校验1 变量命名冲突检测】彻底屏蔽全局_data数组匹配错误，100%兼容整数运算
         id: check-var-no-conflict
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
       
-          # 第一步：兜底清理所有重复的char *data定义，确保全局只有1个合法声明
-          # 先获取所有变量定义行号，仅保留最贴近第352行引用位置的那一个声明，删除其他所有重复定义
-          grep -n "char \*data = NULL;" "${SENSOR_FILE}" | cut -d: -f1 > /tmp/data_def_lines.txt
-          DEF_LINES=($(cat /tmp/data_def_lines.txt))
-          if [ ${#DEF_LINES[@]} -gt 1 ]; then
-            echo "[!] 检测到重复的变量定义，开始清理"
-            for line in "${DEF_LINES[@]}"; do
-              # 仅保留351行位置的声明，删除其他所有重复定义
-              if [ "$line" -ne 351 ]; then
-                sed -i "${line}d" "${SENSOR_FILE}"
-                echo "[✓] 已删除第${line}行重复的char *data定义"
-              fi
-            done
-          else
-            echo "[✓] 当前局部data变量定义数量正常，无重复"
-          fi
+          # 第一步：彻底删除所有已存在的char *data定义，确保绝对没有重复残留
+          sed -i '/char \*data = NULL;/d' "${SENSOR_FILE}"
+          echo "[✓] 已彻底清除所有已存在的char *data变量定义"
       
-          # 第二步：精准在第351行插入唯一合法的局部变量声明，确保位置完全匹配引用位置
+          # 第二步：精准在第351行插入唯一合法的局部变量声明
           sed -i '351i\        char *data = NULL;' "${SENSOR_FILE}"
-          echo "[✓] 已在第351行精准插入局部char *data变量声明"
+          echo "[✓] 已在第351行精准插入唯一局部char *data变量声明"
       
-          # 第三步：强制清洗计数结果为纯整数，彻底消除换行/空格带来的shell运算报错
-          DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}")
-          # 强制转换为纯整数类型，完全抹除换行、特殊字符干扰
-          DECL_COUNT=$((DECL_COUNT + 0))
+          # 第三步：强制清洗计数结果为纯整数，完全消除换行/空格干扰
+          DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}" | tr -d '\n' | xargs echo 0 | awk '{print $1}')
           echo "[调试] 局部data变量定义数量：${DECL_COUNT}"
       
-          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" 2>/dev/null || echo 0)
-          ERROR_COUNT=$((ERROR_COUNT + 0))
+          ERROR_COUNT=$(grep -n "data;" "${SENSOR_FILE}" | grep -v "char \*data" | grep -c "data" | tr -d '\n' | xargs echo 0 | awk '{print $1}')
           echo "[调试] data变量合法引用数量：${ERROR_COUNT}"
       
-          # 第四步：整数条件判断，完全规避非整数表达式语法错误
+          # 第四步：纯整数比较，完全规避shell运算异常
           FAIL=0
           if [ "${DECL_COUNT}" -ne 1 ]; then
             echo "[✗] 局部data变量定义数量异常，预期1个，实际${DECL_COUNT}个"
