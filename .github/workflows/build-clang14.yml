@@ -689,6 +689,47 @@ jobs:
           echo "--- 结束 ---"
 
 
+      - name: 【兜底修复2】强制清理sucompat.c残留的compiler_types.h高版本头文件引用
+        id: force-clean-sucompat-header
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          TARGET_FILE=drivers/kernelsu/feature/sucompat.c
+      
+          # 全量打印目标文件前10行，确认当前头文件状态
+          echo "--- 修复前sucompat.c前10行 ---"
+          head -n 10 $TARGET_FILE
+          echo "--- 结束 ---"
+      
+          # 精准删除所有行内包含linux/compiler_types.h的引用
+          sed -i '/#include <linux\/compiler_types.h>/d' $TARGET_FILE
+          echo "[✓] 已强制删除所有残留的compiler_types.h头文件引用"
+      
+          # 插入小米6 4.4内核原生等效头文件
+          sed -i '1i\#include <linux/compiler.h>' $TARGET_FILE
+          sed -i '2i\#include <linux/types.h>' $TARGET_FILE
+          echo "[✓] 已插入4.4内核原生等效头文件"
+      
+          # 第一层校验：高版本错误头文件完全清除
+          if ! grep -q "#include <linux/compiler_types.h>" $TARGET_FILE; then
+            echo "[✅ 校验通过] sucompat.c中已无compiler_types.h残留引用"
+          else
+            echo "[❌ 校验失败] 高版本头文件引用清理失败，终止构建"
+            exit 1
+          fi
+      
+          # 第二层校验：原生兼容头文件写入生效
+          if grep -q "#include <linux/compiler.h>" $TARGET_FILE && grep -q "#include <linux/types.h>" $TARGET_FILE; then
+            echo "[✅ 校验通过] 4.4内核等效头文件已正确写入"
+          else
+            echo "[❌ 校验失败] 兼容头文件写入失败，终止构建"
+            exit 1
+          fi
+      
+          echo "--- 修复后sucompat.c前10行 ---"
+          head -n 10 $TARGET_FILE
+          echo "--- 结束 ---"
+
+
 
       - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
         id: ksu-dir-final-build-verify
