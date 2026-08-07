@@ -478,17 +478,41 @@ jobs:
           grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
           echo "[✓] KernelSU-Next 部署完成"
 
-      - name: 【校验·第九步】KernelSU 配置确认
+      - name: 【校验·第九步】KernelSU 配置确认 + 最新正式版本校验
+        id: ksu-upgrade-verify
         run: |
           FAIL=0
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
           grep -q "^CONFIG_KSU=y$" "$CONFIG_FILE" 2>/dev/null && echo "[✓] CONFIG_KSU=y" || { echo "[✗] CONFIG_KSU=y 缺失"; FAIL=1; }
           [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu" ] && echo "[✓] KernelSU 驱动目录存在" || { echo "[✗] 驱动目录缺失"; FAIL=1; }
+      
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/KernelSU-Next
+          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "legacy分支(无tag)")
+          LATEST_TAG=$(git ls-remote --tags --refs --sort='-v:refname' \
+            https://github.com/KernelSU-Next/KernelSU-Next \
+            | grep -v -iE "beta|rc|test|preview|nightly|dev" \
+            | head -1 \
+            | cut -d '/' -f 3)
+      
+          echo "[✓] 当前KernelSU-Next版本: ${CURRENT_TAG}"
+          if [ -n "$LATEST_TAG" ]; then
+            echo "[✓] 远程最新正式稳定版: ${LATEST_TAG}"
+            if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
+              echo "[✓] 已是最新正式稳定版，无需额外升级"
+            else
+              echo "[!] 注意: 当前版本与远程最新正式版不一致(可能已fallback到legacy分支)"
+              echo "[!] 这通常不影响内核编译，但建议检查ksu-legacy-setup.sh的执行日志"
+            fi
+          else
+            echo "[!] 无法获取远程最新版本信息，跳过版本比对"
+          fi
+      
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第九步校验失败，终止"
             exit 1
           fi
-          echo "✅ 第九步校验通过"
+          echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
+
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
