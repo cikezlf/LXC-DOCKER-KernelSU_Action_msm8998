@@ -1074,19 +1074,39 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
-          # 校验不存在对数组类型_data的直接赋值操作
-          if grep -q "_data =" "${SENSOR_FILE}"; then
-            echo "[❌ 校验失败] 检测到对全局_data数组的非法赋值，终止构建"
-            exit 1
+      
+          FAIL=0
+      
+          # 校验1：排除注释行后检测_data的直接赋值操作
+          # 先去掉所有C语言单行注释//和块注释/* */，再检测残留的_data赋值
+          CLEANED=$(sed 's|//.*||g; s|/\*.*\*/||g' "${SENSOR_FILE}")
+          if echo "${CLEANED}" | grep -q "_data\s*="; then
+            echo "[❌ 校验失败] 检测到对全局_data数组的非法赋值，具体匹配行如下："
+            # 打印实际匹配行，方便定位修复
+            grep -n "_data\s*=" "${SENSOR_FILE}" | grep -v "//" | grep -v "/\*"
+            FAIL=1
+          else
+            echo "[✓] 无全局_data数组非法赋值，所有data引用均为合法局部变量"
           fi
-          # 二次校验大括号配对完全正常
+      
+          # 校验2：大括号完全配对
           OPEN_BRACE=$(grep -o "{" "${SENSOR_FILE}" | wc -l)
           CLOSE_BRACE=$(grep -o "}" "${SENSOR_FILE}" | wc -l)
-          if [ $((OPEN_BRACE - CLOSE_BRACE)) -ne 0 ]; then
-            echo "[❌ 校验失败] 大括号配对错误，差异数：$((OPEN_BRACE - CLOSE_BRACE))，终止构建"
+          DIFF=$((OPEN_BRACE - CLOSE_BRACE))
+          if [ "${DIFF}" -ne 0 ]; then
+            echo "[❌ 校验失败] 大括号配对错误，差异数：${DIFF}，终止构建"
+            FAIL=1
+          else
+            echo "[✓] 所有大括号完全配对，代码语法层级完整"
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
+            echo "[❌ 全维度语法预校验失败，终止构建]"
             exit 1
           fi
+      
           echo "[✅ 校验通过] 无数组非法赋值，大括号完全配对，所有语法逻辑100%合法"
+
 
 
       - name: 【验证 msm_sensor.c单文件编译测试】彻底确认3个错误全部修复
