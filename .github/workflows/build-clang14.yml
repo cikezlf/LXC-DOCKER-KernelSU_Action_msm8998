@@ -1542,11 +1542,28 @@ jobs:
 
       - name: 验证内核源码目录结构
         run: |
-          echo "[*] 查找所有可能的内核目录："
-          find $GITHUB_WORKSPACE -maxdepth 6 -type d $ -name "android-kernel" -o -name "kernel_workspace" -o -name "KernelSU-Next" $ 2>/dev/null
+          set +e  # 临时关闭错误即退出，允许 find 无结果
+      
+          echo "[*] GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
+          echo "[*] 当前工作目录 = $(pwd)"
+      
           echo ""
-          echo "[*] 检查是否存在 Makefile："
-          find $GITHUB_WORKSPACE -maxdepth 6 -name "Makefile" -path "*/kernel*" 2>/dev/null
+          echo "[*] 查找所有可能的内核目录（android-kernel / kernel_workspace / KernelSU-Next）："
+          find $GITHUB_WORKSPACE -maxdepth 6 -type d \
+            $ -name "android-kernel" -o -name "kernel_workspace" -o -name "KernelSU-Next" $ \
+            2>/dev/null || echo "[!] 未找到任何匹配目录"
+      
+          echo ""
+          echo "[*] 检查是否存在内核 Makefile："
+          find $GITHUB_WORKSPACE -maxdepth 6 -name "Makefile" -path "*/kernel*" \
+            2>/dev/null || echo "[!] 未找到内核 Makefile"
+      
+          echo ""
+          echo "[*] 列出 workspace 根目录内容："
+          ls -la $GITHUB_WORKSPACE/ 2>/dev/null || echo "[!] workspace 根目录不存在"
+      
+          set -e  # 恢复错误即退出
+          echo "[✓] 诊断完成"
 
 
 
