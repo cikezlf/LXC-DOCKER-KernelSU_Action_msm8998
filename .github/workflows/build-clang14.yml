@@ -719,11 +719,11 @@ jobs:
       
           # 关键修复1：先执行 olddefconfig 静默更新所有未配置选项，彻底消灭 silentoldconfig 交互式弹窗
           make O=out CC=clang LD=ld.lld olddefconfig 2>&1 | tee sulog_olddefconfig.log
-          if [ $? -ne 0 ]; then
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "[❌ 校验失败] olddefconfig 配置同步失败，终止构建"
             exit 1
           fi
-          echo "[✓] olddefconfig 已静默更新所有新配置项，消除交互中断风险"
+          echo "[✓] olddefconfig 已静默更新所有新配置项，消除 NF_TABLES_INET 等交互中断风险"
       
           # 关键修复2：使用 PIPESTATUS 捕获 make 真实退出码，不再依赖被 tee 覆盖的 $?
           set +e
@@ -751,6 +751,7 @@ jobs:
             grep "error:" sulog_final_build.log || true
             exit 1
           fi
+
 
 
       - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
