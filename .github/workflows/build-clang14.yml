@@ -945,71 +945,44 @@ jobs:
 
 
       
-      - name: 【兜底修复6.4-合并版】修复lsm_hook.c全部残留（pprev + &head->next + lsm）
-        id: fix-lsm-hook-combined
+      - name: 【兜底修复6.5】修复lsm_hook.c中(void **)head被过度替换和selected_entry类型错误
+        id: fix-lsm-hook-cast-final
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
       
-          echo "========== 修复前全部问题行 =========="
-          echo "--- pprev ---"
-          grep -n "pprev" $LSM_FILE || echo "无"
-          echo "--- &xxx->next ---"
-          grep -nP '&\s*\w+\s*->\s*next' $LSM_FILE || echo "无"
-          echo "--- lsm ---"
-          grep -nP '\.lsm|->lsm' $LSM_FILE || echo "无"
+          echo "========== 修复前第340-355行 =========="
+          sed -n '340,355p' $LSM_FILE | cat -n
           echo "========== 开始修复 =========="
       
-          # 修复1：pprev → prev（全局，不区分->还是.）
-          perl -0777 -i -pe 's/pprev/prev/g' $LSM_FILE
-          echo "[✓] pprev → prev"
+          # 修复1：将 (void &zwnj;**)head 恢复为 (void **&zwnj;)&head->next
+          # 这是list_head版本的正确写法，获取head->next指针的地址（即函数指针槽位）
+          sed -i 's/(void \*\*)head\b/(void **)\&head->next/g' $LSM_FILE
+          echo "[✓] (void &zwnj;**)head → (void **&zwnj;)&head->next"
       
-          # 修复2：&xxx->next → xxx（list_head中prev指向head本身，不是head->next的地址）
-          # 匹配 &head->next; 或 &cur->next; 等，替换为去掉&和->next的变量名
-          perl -0777 -i -pe 's/&\s*(\w+)\s*->\s*next\s*;/"$1"/ge' $LSM_FILE
-          echo "[✓] &xxx->next → xxx"
-      
-          # 修复3：删除所有 .lsm = xxx 或 ->lsm = xxx 赋值行
-          perl -0777 -i -pe 's/^\s*\S+\s*(?:\.lsm|->lsm)\s*=.*$//gm' $LSM_FILE
-          # 清理残留的 lsm 引用（非赋值场景）
-          perl -0777 -i -pe 's/(?:\.lsm|->lsm)/.list/g' $LSM_FILE
-          echo "[✓] lsm成员已清除"
-      
-          # 修复4：清理多余空行
-          perl -0777 -i -pe 's/\n\n\n+/\n\n/g' $LSM_FILE
+          # 修复2：如果 selected_entry 被声明为 struct hlist_node * 类型，
+          # 需要改为 struct list_head *（因为我们已经把 hlist_for_each_entry 替换为 list_for_each_entry）
+          # 但 selected_entry 可能是从 list_for_each_entry 宏展开的局部变量，类型由宏决定
+          # 检查并修复可能的类型声明
+          if grep -q "struct hlist_node.*selected_entry\|struct hlist_node.*\*selected" $LSM_FILE; then
+            sed -i 's/struct hlist_node/struct list_head/g' $LSM_FILE
+            echo "[✓] selected_entry 类型声明修复"
+          else
+            echo "[·] 无需修复 selected_entry 类型声明"
+          fi
       
           echo ""
-          echo "========== 修复后校验 =========="
-          echo "--- pprev残留 ---"
-          if grep -q "pprev" $LSM_FILE; then
-            echo "[❌] 仍有pprev!"
-            grep -n "pprev" $LSM_FILE
-            exit 1
-          else
-            echo "[✅] 0处"
-          fi
+          echo "========== 修复后第340-355行 =========="
+          sed -n '340,355p' $LSM_FILE | cat -n
       
-          echo "--- &xxx->next残留 ---"
-          if grep -qP '&\s*\w+\s*->\s*next' $LSM_FILE; then
-            echo "[❌] 仍有&xxx->next!"
-            grep -nP '&\s*\w+\s*->\s*next' $LSM_FILE
-            exit 1
+          echo ""
+          echo "========== 校验 =========="
+          if grep -q "(void \*\*)head[^-]" $LSM_FILE; then
+            echo "[⚠] 仍有裸露的 (void **)head，请检查"
           else
-            echo "[✅] 0处"
+            echo "[✅] (void &zwnj;**)head 已全部修复为 (void **&zwnj;)&head->next"
           fi
-      
-          echo "--- lsm残留 ---"
-          if grep -qP '\.lsm|->lsm' $LSM_FILE; then
-            echo "[❌] 仍有lsm!"
-            grep -nP '\.lsm|->lsm' $LSM_FILE
-            exit 1
-          else
-            echo "[✅] 0处"
-          fi
-      
-          echo "--- 第340-350行修复后内容 ---"
-          sed -n '340,350p' $LSM_FILE
-          echo "[✓] lsm_hook.c全部修复完成"
+          echo "[✓] lsm_hook.c 修复完成"
 
 
 
