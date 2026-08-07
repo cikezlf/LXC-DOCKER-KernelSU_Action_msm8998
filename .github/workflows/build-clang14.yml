@@ -628,49 +628,87 @@ jobs:
           fi
 
       
-      - name: 【修复KernelSU 终极版】移除sulog.c高版本内核专属头文件依赖
-        id: ksu-sulog-fix
+
+      - name: 【修复Sulog兼容1】全量备份所有KernelSU sulog系列文件
+        id: ksu-sulog-backup-all
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          SULOG_FILE=drivers/kernelsu/feature/sulog.c
-          
-          # 第一步：全量备份原始文件，防止误操作
-          cp "$SULOG_FILE" "${SULOG_FILE}.bak.origin"
-          echo "[✓] sulog.c原始全量备份已生成"
-          
-          # 第二步：删除不存在的linux/compiler_types.h头文件引用
-          sed -i '/#include <linux\/compiler_types.h>/d' "$SULOG_FILE"
-          echo "[✓] 已移除高版本专属头文件引用"
-          
-          # 第三步：在文件开头写入小米6 msm8998 4.4内核原生等效头文件，完全覆盖原compiler_types.h提供的所有定义
-          sed -i '1a\#include <linux/compiler.h>' "$SULOG_FILE"
-          sed -i '1a\#include <linux/types.h>' "$SULOG_FILE"
-          echo "[✓] 已插入4.4内核原生兼容等效头文件"
-          
-          # 校验1：确认不存在残留的错误头文件引用
-          if ! grep -q "#include <linux/compiler_types.h>" "$SULOG_FILE"; then
-            echo "[✅ 校验通过] 错误的高版本头文件已完全清除"
+          SULOG_ROOT=drivers/kernelsu
+          SULOG_C_FILE=$SULOG_ROOT/feature/sulog.c
+          SULOG_H_FILE=$SULOG_ROOT/feature/sulog.h
+          EVENT_H_FILE=$SULOG_ROOT/sulog/event.h
+      
+          # 全量时间戳备份，避免后续修改不可逆
+          cp "$SULOG_C_FILE" "${SULOG_C_FILE}.bak.sulog_fix_$(date +%Y%m%d_%H%M%S)"
+          cp "$SULOG_H_FILE" "${SULOG_H_FILE}.bak.sulog_fix_$(date +%Y%m%d_%H%M%S)"
+          cp "$EVENT_H_FILE" "${EVENT_H_FILE}.bak.sulog_fix_$(date +%Y%m%d_%H%M%S)"
+          echo "[✓] sulog.c、sulog.h、event.h三个核心文件全量备份已生成"
+      
+          # 清理之前误插入到sulog.c头部的多余兼容头文件，避免重复引用冲突
+          sed -i '/#include <linux\/compiler.h>/d' "$SULOG_C_FILE"
+          sed -i '/#include <linux\/types.h>/d' "$SULOG_C_FILE"
+          echo "[✓] 已清理sulog.c中之前误插入的重复兼容头文件"
+
+      - name: 【修复Sulog兼容2】修复sulog.h缺失基础宏/类型定义
+        id: ksu-sulog-h-fix
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SULOG_H_FILE=drivers/kernelsu/feature/sulog.h
+      
+          # 在头文件最开头插入4.4内核原生标准头文件，提前声明所有必要宏和类型
+          sed -i '1i\#include <linux/module.h>' "$SULOG_H_FILE"
+          sed -i '1a\#include <linux/types.h>' "$SULOG_H_FILE"
+          echo "[✓] 已在sulog.h头部插入module.h和types.h，原生包含__init/__exit/void全量定义"
+      
+          # 第一层校验：确认新增头文件已正确写入
+          if grep -q "#include <linux/module.h>" "$SULOG_H_FILE" && grep -q "#include <linux/types.h>" "$SULOG_H_FILE"; then
+            echo "[✅ 校验通过] sulog.h基础兼容头文件写入成功"
           else
-            echo "[❌ 校验失败] 错误头文件引用残留，终止构建"
+            echo "[❌ 校验失败] sulog.h兼容头文件写入失败，终止构建"
             exit 1
           fi
-          
-          # 校验2：确认等效兼容头文件已成功写入
-          if grep -q "#include <linux/compiler.h>" "$SULOG_FILE" && grep -q "#include <linux/types.h>" "$SULOG_FILE"; then
-            echo "[✅ 校验通过] 4.4内核原生等效头文件已正确写入"
+      
+          # 第二层校验：原始函数声明结构完整性未被破坏
+          if grep -q "void __init ksu_sulog_init(void);" "$SULOG_H_FILE" && grep -q "void __exit ksu_sulog_exit(void);" "$SULOG_H_FILE"; then
+            echo "[✅ 校验通过] sulog.h原始ksu_sulog_init和ksu_sulog_exit函数声明完整保留"
           else
-            echo "[❌ 校验失败] 兼容头文件写入失败，终止构建"
+            echo "[❌ 校验失败] sulog.h函数声明意外丢失，终止构建"
             exit 1
           fi
-          
-          # 校验3：打印修复后文件前5行确认结构正确
-          echo "--- 修复后sulog.c前5行 ---"
-          head -n 5 "$SULOG_FILE"
-          echo "--- 结束 ---"
 
+      - name: 【修复Sulog兼容3】彻底移除event.h高版本内核专属头文件依赖
+        id: ksu-event-h-fix
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          EVENT_H_FILE=drivers/kernelsu/sulog/event.h
+      
+          # 精准删除不存在的高版本头文件引用
+          sed -i '/#include <linux\/compiler_types.h>/d' "$EVENT_H_FILE"
+          echo "[✓] 已完全移除event.h中的linux/compiler_types.h高版本专属引用"
+      
+          # 插入4.4内核原生等效头文件，覆盖原头文件提供的tracepoint相关全部定义
+          sed -i '1i\#include <linux/tracepoint.h>' "$EVENT_H_FILE"
+          sed -i '1a\#include <linux/compiler.h>' "$EVENT_H_FILE"
+          echo "[✓] 已在event.h头部插入4.4内核原生等效头文件tracepoint.h和compiler.h"
+      
+          # 第一层校验：高版本错误头文件完全清除
+          if ! grep -q "#include <linux/compiler_types.h>" "$EVENT_H_FILE"; then
+            echo "[✅ 校验通过] event.h中不存在残留的高版本专属头文件引用"
+          else
+            echo "[❌ 校验失败] event.h残留高版本头文件引用，终止构建"
+            exit 1
+          fi
+      
+          # 第二层校验：兼容头文件写入生效
+          if grep -q "#include <linux/tracepoint.h>" "$EVENT_H_FILE" && grep -q "#include <linux/compiler.h>" "$EVENT_H_FILE"; then
+            echo "[✅ 校验通过] event.h兼容头文件写入成功"
+          else
+            echo "[❌ 校验失败] event.h兼容头文件写入失败，终止构建"
+            exit 1
+          fi
 
-      - name: 【预编译校验】KernelSU全驱动目录版本兼容校验
-        id: ksu-whole-dir-final-verify
+      - name: 【预编译校验】sulog.o单文件编译验证
+        id: ksu-sulog-single-build
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
@@ -678,27 +716,58 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
+      
           set +e
-          make O=out CC=clang LD=ld.lld drivers/kernelsu/ 2>&1 | tee ksu_full_final.log
+          make O=out CC=clang LD=ld.lld drivers/kernelsu/feature/sulog.o 2>&1 | tee sulog_single_build.log
+          BUILD_RET=$?
+          set -e
+      
+          # 精准校验所有原始报错是否完全消除
+          VOID_ERR_COUNT=$(grep -c "variable has incomplete type 'void'" sulog_single_build.log 2>/dev/null | tail -1)
+          VOID_ERR_COUNT=${VOID_ERR_COUNT:-0}
+          SEMICOLON_ERR_COUNT=$(grep -c "expected ';' after top level declarator" sulog_single_build.log 2>/dev/null | tail -1)
+          SEMICOLON_ERR_COUNT=${SEMICOLON_ERR_COUNT:-0}
+          COMPILER_TYPES_ERR_COUNT=$(grep -c "'linux/compiler_types.h' file not found" sulog_single_build.log 2>/dev/null | tail -1)
+          COMPILER_TYPES_ERR_COUNT=${COMPILER_TYPES_ERR_COUNT:-0}
+      
+          echo "[✓] void不完整类型错误数量：$VOID_ERR_COUNT"
+          echo "[✓] 声明后缺分号错误数量：$SEMICOLON_ERR_COUNT"
+          echo "[✓] compiler_types.h头文件缺失错误数量：$COMPILER_TYPES_ERR_COUNT"
+          echo "[✓] make退出状态码：$BUILD_RET"
+      
+          if [ "$BUILD_RET" -eq 0 ] && [ "$VOID_ERR_COUNT" -eq 0 ] && [ "$SEMICOLON_ERR_COUNT" -eq 0 ] && [ "$COMPILER_TYPES_ERR_COUNT" -eq 0 ]; then
+            echo "[✅ 校验通过] sulog.o单文件编译100%成功，本次上报的5个原始致命错误已完全消除"
+          else
+            echo "[❌ 校验失败] sulog.o编译仍存在残留错误"
+            grep "error:" sulog_single_build.log || true
+            exit 1
+          fi
+
+      - name: 【最终全量校验】KernelSU全驱动目录编译验证
+        id: ksu-full-dir-final-verify
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          export ARCH=arm64
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+      
+          set +e
+          make O=out CC=clang LD=ld.lld drivers/kernelsu/ 2>&1 | tee ksu_full_final_build.log
           KSU_BUILD_RET=$?
           set -e
-          
-          # 多重校验规则
-          SULOG_ERR=$(grep -c "'linux/compiler_types.h' file not found" ksu_full_final.log 2>/dev/null | tail -1)
-          SULOG_ERR=${SULOG_ERR:-0}
-          TOTAL_ERROR=$(grep -c "error:" ksu_full_final.log 2>/dev/null | tail -1)
+      
+          TOTAL_ERROR=$(grep -c "error:" ksu_full_final_build.log 2>/dev/null | tail -1)
           TOTAL_ERROR=${TOTAL_ERROR:-0}
-          
-          echo "[✓] 头文件缺失致命错误数量：$SULOG_ERR"
-          echo "[✓] KernelSU目录总编译错误数量：$TOTAL_ERROR"
+          echo "[✓] KernelSU全驱动目录总错误数量：$TOTAL_ERROR"
           echo "[✓] make返回状态码：$KSU_BUILD_RET"
-          
-          if [ "$KSU_BUILD_RET" -eq 0 ] && [ "$SULOG_ERR" -eq 0 ] && [ "$TOTAL_ERROR" -eq 0 ]; then
-            echo "[✅ 校验通过] KernelSU全目录编译100%成功，所有版本兼容问题已完全解决"
+      
+          if [ "$KSU_BUILD_RET" -eq 0 ] && [ "$TOTAL_ERROR" -eq 0 ]; then
+            echo "[✅ 校验通过] KernelSU 全目录编译100%成功，所有4.4内核版本兼容问题已彻底解决"
           else
-            echo "[❌ 校验失败] KernelSU驱动目录仍存在编译错误"
-            grep "error:" ksu_full_final.log || true
+            echo "[❌ 校验失败] KernelSU目录仍存在编译错误"
+            grep "error:" ksu_full_final_build.log || true
             exit 1
           fi
 
