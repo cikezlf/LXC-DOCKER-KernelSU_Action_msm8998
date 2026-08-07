@@ -1641,24 +1641,59 @@ jobs:
           rm -f /tmp/ksu_compat.patch
           echo "[✓] 兼容宏块已写入"
 
-      - name: 【file_wrapper.c修复·包裹不兼容成员】
-        id: file-wrapper-cond-wrap
+      - name: 【file_wrapper.c修复·包裹不兼容成员v2】
+        id: file-wrapper-cond-wrap-v2
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TARGET_FILE=drivers/kernelsu/infra/file_wrapper.c
           for member in iopoll iterate_shared copy_file_range remap_file_range fadvise mmap_supported_flags; do
-            sed -i "/p->ops\.${member}\s*=/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
-            sed -i "/p->ops\.${member}\s*=/a\#endif" "$TARGET_FILE"
-            sed -i "/if (.*p->ops\.${member}/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
-            sed -i "/if (.*p->ops\.${member}/a\#endif" "$TARGET_FILE"
+            # 模式1：p->ops.xxx = 任意赋值（含空格变体）
+            sed -i "/p->ops\.${member}[[:space:]]*=/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
+            sed -i "/p->ops\.${member}[[:space:]]*=/a\#endif" "$TARGET_FILE"
+            # 模式2：if (p->ops.xxx) 或 if (xxx && p->ops.xxx)
+            sed -i "/p->ops\.${member}[[:space:]]*)/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
+            sed -i "/p->ops\.${member}[[:space:]]*)/a\#endif" "$TARGET_FILE"
+            # 模式3：fp->f_op->xxx 三元表达式
             sed -i "/fp->f_op->${member}/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
             sed -i "/fp->f_op->${member}/a\#else\n        NULL\n#endif" "$TARGET_FILE"
+            # 模式4：.xxx = 结构体初始化成员
+            sed -i "/\.${member}[[:space:]]*=/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
+            sed -i "/\.${member}[[:space:]]*=/a\#endif" "$TARGET_FILE"
+            # 模式5：ops->xxx 另一种访问形式
+            sed -i "/ops->${member}/i\#if KSU_FOP_HAS_${member}" "$TARGET_FILE"
+            sed -i "/ops->${member}/a\#endif" "$TARGET_FILE"
           done
+          # 清理所有#endif行尾多余字符
           sed -i -E 's/^(\s*#endif)\s+.+/\1/g' "$TARGET_FILE"
-          echo "[✓] 不兼容成员已全部包裹"
+          echo "[✓] 增强版包裹完成"
 
-      - name: 【file_wrapper.c修复·结果校验】
-        id: file-wrapper-verify
+      - name: 【file_wrapper.c修复·兜底逐个修复未包裹成员】
+        id: file-wrapper-fallback
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          TARGET_FILE=drivers/kernelsu/infra/file_wrapper.c
+          # 列出所有未包裹的行号
+          echo "[*] 检测未包裹的成员访问："
+          grep -n "iopoll\|iterate_shared\|copy_file_range\|remap_file_range\|fadvise\|mmap_supported_flags" "$TARGET_FILE" | grep -v "#if\|#endif\|#define\|static inline\|//\|/\*" > /tmp/unwrapped_lines.txt || true
+          if [ -s /tmp/unwrapped_lines.txt ]; then
+            echo "[!] 以下行仍未被包裹："
+            cat /tmp/unwrapped_lines.txt
+            # 逐行处理，在每行前后插入条件编译
+            while IFS= read -r line; do
+              LINE_NUM=$(echo "$line" | cut -d: -f1)
+              echo "[*] 包裹第${LINE_NUM}行"
+              sed -i "${LINE_NUM}i\#if KSU_FOP_HAS_IOPOLL || KSU_FOP_HAS_ITERATE_SHARED || KSU_FOP_HAS_COPY_FILE_RANGE || KSU_FOP_HAS_REMAP_FILE_RANGE || KSU_FOP_HAS_FADVISE || KSU_FOP_HAS_MMAP_SUPPORTED_FLAGS" "$TARGET_FILE"
+              # 插入后行号+1
+              LINE_NUM=$((LINE_NUM + 1))
+              sed -i "${LINE_NUM}a\#endif" "$TARGET_FILE"
+            done < /tmp/unwrapped_lines.txt
+            rm -f /tmp/unwrapped_lines.txt
+          else
+            echo "[✓] 无未包裹成员"
+          fi
+
+      - name: 【file_wrapper.c修复·最终校验】
+        id: file-wrapper-final-verify
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TARGET_FILE=drivers/kernelsu/infra/file_wrapper.c
@@ -1667,10 +1702,21 @@ jobs:
           grep -q "#define REMAP_FILE_DEDUP 0" "$TARGET_FILE" && echo "[✓] REMAP_FILE_DEDUP" || { echo "[❌] REMAP_FILE_DEDUP缺失"; FAIL=1; }
           grep -q "static inline int security_inode_init_security_anon" "$TARGET_FILE" && echo "[✓] security回退函数" || { echo "[❌] security回退函数缺失"; FAIL=1; }
           grep -q "static inline struct file \*alloc_file_pseudo" "$TARGET_FILE" && echo "[✓] alloc_file回退函数" || { echo "[❌] alloc_file回退函数缺失"; FAIL=1; }
-          UNWRAPPED=$(grep -nE "p->ops\.(iopoll|iterate_shared|copy_file_range|remap_file_range|fadvise|mmap_supported_flags)" "$TARGET_FILE" | grep -v "#if\|#endif" | wc -l)
-          if [ "$UNWRAPPED" -eq 0 ]; then echo "[✓] 无裸露成员访问"; else echo "[❌] ${UNWRAPPED}处未包裹"; FAIL=1; fi
-          if [ $FAIL -eq 1 ]; then echo "❌ 校验失败，终止构建"; exit 1; fi
-          echo "✅ 全部20个编译错误已清零，可进入后续编译"
+          # 最终兜底检查：排除所有合法行后统计剩余
+          UNWRAPPED=$(grep -n "iopoll\|iterate_shared\|copy_file_range\|remap_file_range\|fadvise\|mmap_supported_flags" "$TARGET_FILE" | grep -v "#if\|#endif\|#define\|static inline\|//\|/\*\|KSU_FOP_HAS" | wc -l)
+          if [ "$UNWRAPPED" -eq 0 ]; then
+            echo "[✓] 所有成员访问已完全包裹"
+          else
+            echo "[❌] 仍有${UNWRAPPED}处未包裹"
+            grep -n "iopoll\|iterate_shared\|copy_file_range\|remap_file_range\|fadvise\|mmap_supported_flags" "$TARGET_FILE" | grep -v "#if\|#endif\|#define\|static inline\|//\|/\*\|KSU_FOP_HAS"
+            FAIL=1
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 校验失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 全部编译错误已清零"
+
 
 
 
