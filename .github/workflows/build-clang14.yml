@@ -886,6 +886,63 @@ jobs:
           echo "[✓] sucompat.c: $(grep 'strncpy_from_user_nofault' $SUCOMPAT_FILE | head -1)"
           echo "[✓] 所有高版本函数兼容修复已完成"
 
+      
+      - name: 【兜底修复6】修复lsm_hook.c的hlist→list_head兼容问题（4.4内核LSM API差异）
+        id: fix-lsm-hook-compat
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
+      
+          echo "========== 修复前lsm_hook.c关键区域 =========="
+          grep -n -E "(hlist_for_each|pprev|->first|->lsm|hlist_head|hlist_node)" $LSM_FILE | head -30
+          echo "========== 结束 =========="
+      
+          # 1. 替换hlist遍历宏为list遍历宏
+          sed -i 's/hlist_for_each_entry(/list_for_each_entry(/g' $LSM_FILE
+          sed -i 's/hlist_for_each_entry_safe(/list_for_each_entry_safe(/g' $LSM_FILE
+          echo "[✓] hlist_for_each_entry → list_for_each_entry"
+      
+          # 2. 替换hlist操作函数
+          sed -i 's/hlist_add_head_rcu/list_add_rcu/g' $LSM_FILE
+          sed -i 's/hlist_del_rcu/list_del_rcu/g' $LSM_FILE
+          echo "[✓] hlist_add_head_rcu/hlist_del_rcu → list版本"
+      
+          # 3. 替换hlist_head/hlist_node类型声明
+          sed -i 's/struct hlist_head/struct list_head/g' $LSM_FILE
+          sed -i 's/struct hlist_node/struct list_head/g' $LSM_FILE
+          echo "[✓] hlist_head/hlist_node → list_head"
+      
+          # 4. 修复成员名：pprev → prev
+          sed -i 's/->pprev/->prev/g' $LSM_FILE
+          echo "[✓] pprev → prev"
+      
+          # 5. 修复成员名：first → next
+          sed -i 's/->first/->next/g' $LSM_FILE
+          echo "[✓] first → next"
+      
+          # 6. 修复lsm成员：4.4内核security_hook_list无lsm字段
+          if grep -q "->lsm" $LSM_FILE; then
+            echo "发现lsm成员引用，进行修复..."
+            LAST_INC=$(grep -n '#include' $LSM_FILE | tail -1 | cut -d: -f1)
+            printf '\n/* 4.4内核兼容：security_hook_list无lsm成员 */\n' > /tmp/lsm_fix.txt
+            printf '#define HOOK_LSM(entry) "unknown"\n' >> /tmp/lsm_fix.txt
+            sed -i "${LAST_INC}r /tmp/lsm_fix.txt" $LSM_FILE
+            sed -i 's/entry->lsm/HOOK_LSM(entry)/g' $LSM_FILE
+            sed -i 's/hook->lsm/HOOK_LSM(hook)/g' $LSM_FILE
+            rm -f /tmp/lsm_fix.txt
+            echo "[✓] lsm成员引用已修复"
+          else
+            echo "[✓] 无lsm成员引用，跳过"
+          fi
+      
+          echo ""
+          echo "========== 修复后lsm_hook.c关键区域 =========="
+          grep -n -E "(list_for_each_entry|->prev|->next|HOOK_LSM)" $LSM_FILE | head -20
+          echo "========== 结束 =========="
+      
+          echo "[✓] lsm_hook.c的4.4内核LSM兼容修复已完成"
+
+
 
 
       - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
