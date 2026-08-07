@@ -1895,23 +1895,6 @@ jobs:
 
 
 
-      - name: symbol_resolver.c单文件编译预校验
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
-          export ARCH=arm64
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          make O=out CC=clang LD=ld.lld drivers/kernelsu/infra/symbol_resolver.o 2>&1
-          if [ $? -eq 0 ]; then
-            echo "[✅ symbol_resolver.o 单文件编译完全成功，无任何语法错误]"
-          else
-            echo "[❌ 仍有残留编译错误，请查看上方日志输出定位剩余问题"
-            exit 1
-          fi
-
-
-
 
 
       - name: 【最终全量校验】KernelSU全驱动目录编译验证（修复管道退出码+交互式配置中断）
