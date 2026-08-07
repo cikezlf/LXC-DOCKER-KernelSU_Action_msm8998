@@ -513,48 +513,62 @@ jobs:
           echo "✅ 第九步校验通过，KernelSU-Next版本校验完成"
 
       # ==================== 新增：KernelSU-Next syscall_fn_t缺失类型修复 ====================
-      - name: 【修复KernelSU 1 三重兜底版】新增syscall_fn_t缺失类型定义，彻底解决类型未定义报错
-        id: fix-ksu-syscall-type
+      - name: 【修复KernelSU 1 无中断兜底版】syscall_fn_t缺失类型定义强制写入
+        id: ksu-syscall-type-final-fix
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
           
-          # 第一步：先做完整备份，确保可回溯
-          cp "$KSU_HOOK_HEADER" "${KSU_HOOK_HEADER}.bak.full_$(date +%Y%m%d_%H%M%S)"
-          echo "[✓] syscall_hook.h全量原始备份已生成"
-      
-          # 第一层兜底：先清理旧的重复插入残留，避免之前的失败操作污染文件
+          # 第一步：全量时间戳备份原始文件，避免任何不可逆修改
+          BACKUP_NAME="${KSU_HOOK_HEADER}.bak.$(date +%Y%m%d%H%M%S)"
+          cp "$KSU_HOOK_HEADER" "$BACKUP_NAME"
+          echo "[✓] syscall_hook.h原始全量备份已生成，路径：$BACKUP_NAME"
+          
+          # 第二步：彻底清除所有历史残留的重复类型定义，避免重复写入冲突
           sed -i '/typedef long (*syscall_fn_t)(const struct pt_regs *);/d' "$KSU_HOOK_HEADER"
-          echo "[✓] 已清理文件中可能残留的重复类型定义"
-      
-          # 第二层兜底：优先使用安全的行首插入方式写入类型定义，兼容旧内核特殊头文件格式
-          FIRST_LINE_NUM=$(head -n 1 "$KSU_HOOK_HEADER" | grep -q '^#' && echo 1 || echo 2)
-          sed -i "${FIRST_LINE_NUM}i\typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"
-          echo "[✓] 第一层尝试：在头文件第${FIRST_LINE_NUM}行插入类型定义"
-      
-          # 第三层兜底：若第一层写入失败，直接在文件最开头写入，确保绝对生效
+          echo "[✓] 已清理文件中可能残留的所有重复syscall_fn_t定义"
+          
+          # 第三步：跳过文件首行的头部版权注释/宏定义，在有效代码起始位置写入类型定义
+          TARGET_LINE=1
+          while [ $TARGET_LINE -le 20 ]; do
+            LINE_CONTENT=$(sed -n "${TARGET_LINE}p" "$KSU_HOOK_HEADER")
+            # 跳过注释、空行、#include和空版权行，找到第一个纯有效代码行的位置前插入定义
+            if [[ ! "$LINE_CONTENT" =~ :space:]]*# && ! -z "$LINE_CONTENT" ]]; then
+              break
+            fi
+            TARGET_LINE=$((TARGET_LINE + 1))
+          done
+          sed -i "${TARGET_LINE}i\typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"
+          echo "[✓] 第一层写入：已在头文件第${TARGET_LINE}行插入syscall_fn_t函数指针类型定义"
+          
+          # 强制写入兜底：第一层写入失败时直接在文件最开头追加，绝对保证定义生效
           if ! grep -q "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"; then
-            echo "typedef long (*syscall_fn_t)(const struct pt_regs *);" | cat - "$KSU_HOOK_HEADER" > "${KSU_HOOK_HEADER}.new"
-            mv "${KSU_HOOK_HEADER}.new" "$KSU_HOOK_HEADER"
-            echo "[✓] 第二层兜底写入：通过重写文件头部强制插入类型定义"
+            echo "typedef long (*syscall_fn_t)(const struct pt_regs *);" | cat - "$KSU_HOOK_HEADER" > "${KSU_HOOK_HEADER}.tmp"
+            mv -f "${KSU_HOOK_HEADER}.tmp" "$KSU_HOOK_HEADER"
+            echo "[✓] 第二层兜底写入：已通过文件头部重写强制插入类型定义"
           fi
-      
-          # 最终校验：强制验证写入结果，失败立即终止不会带错进入编译流程
-          grep "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER" > /dev/null
-          if [ $? -eq 0 ]; then
-            echo "[✅ 校验通过] syscall_fn_t函数指针类型定义已100%成功写入头文件"
+          
+          # 最终写入校验，全程使用set +e避免grep返回非零直接中断步骤
+          set +e
+          grep "typedef long (*syscall_fn_t)(const struct pt_regs *);" "$KSU_HOOK_HEADER"
+          WRITE_EXIT=$?
+          set -e
+          
+          if [ $WRITE_EXIT -eq 0 ]; then
+            echo "[✅ 校验通过] syscall_fn_t类型定义已100%成功写入syscall_hook.h"
           else
-            echo "[❌ 校验失败] 三重兜底写入全部失败，终止构建流程"
+            echo "[❌ 校验失败] 写入操作完全失败，终止构建流程"
             exit 1
           fi
 
+
       
-      - name: 【校验KernelSU 1】类型定义位置有效性确认
+      - name: 【校验KernelSU 1 位置有效性确认】保证类型定义在所有引用点之前
+        id: ksu-type-pos-verify
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           KSU_HOOK_HEADER=drivers/kernelsu/hook/syscall_hook.h
           
-          # 校验类型定义行号必须早于所有syscall_fn_t引用行，符合C语言先定义后使用规则
           DEF_LINE=$(grep -n "typedef long (*syscall_fn_t)" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
           REF1_LINE=$(grep -n "syscall_fn_t \*ksu_syscall_table" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
           REF2_LINE=$(grep -n "ksu_syscall_table_hook" "$KSU_HOOK_HEADER" | head -1 | cut -d: -f1)
@@ -564,15 +578,16 @@ jobs:
           echo "[✓] 第二处引用行号：$REF2_LINE"
           
           if [ "$DEF_LINE" -lt "$REF1_LINE" ] && [ "$DEF_LINE" -lt "$REF2_LINE" ]; then
-            echo "[✅ 校验通过] 类型定义位置在所有引用之前，完全符合C语言编译顺序要求"
+            echo "[✅ 校验通过] 类型定义位置在所有引用之前，完全符合C语言先定义后使用规则"
           else
-            echo "[❌ 校验失败] 类型定义位置晚于引用点，会触发重复类型错误"
+            echo "[❌ 校验失败] 类型定义位置晚于引用点，会触发重复类型错误，终止构建"
             exit 1
           fi
 
 
-      - name: 【修复KernelSU 2】syscall_fn_t单文件预编译测试
-        id: ksu-single-file-build-test
+
+      - name: 【预编译测试】drivers/kernelsu/core/init.o单文件编译验证
+        id: ksu-init-o-compile-test
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
@@ -580,23 +595,22 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # 单独编译KernelSU核心报错文件，验证3处未知类型错误是否100%消除
           set +e
-          make O=out CC=clang LD=ld.lld \
-            drivers/kernelsu/core/init.o 2>&1 | tee ksu_single_build.log
-          BUILD_EXIT=$?
+          make O=out CC=clang LD=ld.lld drivers/kernelsu/core/init.o 2>&1 | tee ksu_init_build.log
+          BUILD_RET=$?
           set -e
           
-          echo "[✓] 单文件编译日志已生成，开始错误扫描"
-          ERROR_COUNT=$(grep -c "error: unknown type name 'syscall_fn_t'" ksu_single_build.log 2>/dev/null || echo 0)
+          ERROR_COUNT=$(grep -c "error: unknown type name 'syscall_fn_t'" ksu_init_build.log 2>/dev/null || echo 0)
+          echo "[✓] 编译日志中syscall_fn_t类型错误数量：$ERROR_COUNT"
           
-          if [ "$BUILD_EXIT" -eq 0 ] && [ "$ERROR_COUNT" -eq 0 ]; then
-            echo "[✅ 校验通过] drivers/kernelsu/core/init.o编译100%成功，3处syscall_fn_t类型错误完全消除"
+          if [ "$BUILD_RET" -eq 0 ] && [ "$ERROR_COUNT" -eq 0 ]; then
+            echo "[✅ 校验通过] init.o单文件编译100%成功，3处syscall_fn_t未定义错误已完全消除"
           else
-            echo "[❌ 校验失败] 单文件编译仍存在错误，错误数量：$ERROR_COUNT"
-            grep "error:" ksu_single_build.log || true
+            echo "[❌ 校验失败] 编译仍存在错误"
+            grep "error:" ksu_init_build.log || true
             exit 1
           fi
+
 
       
       - name: 【修复KernelSU 3】全KernelSU子目录编译链路预校验
