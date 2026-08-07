@@ -1068,7 +1068,7 @@ jobs:
           echo "✅ 变量冲突检测100%通过，不存在数组不可赋值的语法问题"
 
 
-
+      
       - name: 【修复2 全维度语法预校验】提前拦截所有语法错误，确保无数组赋值错误
         id: syntax-pre-check
         run: |
@@ -1077,13 +1077,12 @@ jobs:
       
           FAIL=0
       
-          # 校验1：排除注释行后检测_data的直接赋值操作
-          # 先去掉所有C语言单行注释//和块注释/* */，再检测残留的_data赋值
+          # 校验1：精确匹配独立的全局_data标识符赋值，排除sensor_32_data、local_data等误报
+          # 使用单词边界匹配，确保_data前面不是字母/数字/下划线，后面紧跟等号
           CLEANED=$(sed 's|//.*||g; s|/\*.*\*/||g' "${SENSOR_FILE}")
-          if echo "${CLEANED}" | grep -q "_data\s*="; then
+          if echo "${CLEANED}" | grep -qE '(^|[^a-zA-Z0-9_])_data\s*='; then
             echo "[❌ 校验失败] 检测到对全局_data数组的非法赋值，具体匹配行如下："
-            # 打印实际匹配行，方便定位修复
-            grep -n "_data\s*=" "${SENSOR_FILE}" | grep -v "//" | grep -v "/\*"
+            grep -nE '(^|[^a-zA-Z0-9_])_data\s*=' "${SENSOR_FILE}" | grep -v "//" | grep -v "/\*"
             FAIL=1
           else
             echo "[✓] 无全局_data数组非法赋值，所有data引用均为合法局部变量"
