@@ -1300,6 +1300,107 @@ jobs:
           echo "✅ tp_marker.c sched/task.h 修复完成"
 
 
+      - name: 【兜底修复13】修复patch_memory.c的4.4内核兼容（p4d + __pte_to_phys + copy_to_kernel_nofault + __flush_icache_range）
+        id: fix-patch-memory
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          FILE=drivers/kernelsu/hook/arm64/patch_memory.c
+      
+          echo "=== 修复前：文件前15行 ==="
+          head -15 $FILE | cat -n
+      
+          # 步骤1：确保 version.h 存在
+          if ! grep -q "linux/version.h" $FILE; then
+            FIRST_INC=$(grep -n "^#include" $FILE | head -1 | cut -d: -f1)
+            sed -i "${FIRST_INC}i#include <linux/version.h>" $FILE
+            echo "[✓] 已插入 linux/version.h"
+          else
+            echo "[✓] version.h 已存在"
+          fi
+      
+          # 步骤2：确保 uaccess.h 存在（probe_kernel_read 需要）
+          if ! grep -q "linux/uaccess.h" $FILE; then
+            FIRST_INC=$(grep -n "^#include" $FILE | head -1 | cut -d: -f1)
+            sed -i "${FIRST_INC}i#include <linux/uaccess.h>" $FILE
+            echo "[✓] 已插入 linux/uaccess.h"
+          else
+            echo "[✓] uaccess.h 已存在"
+          fi
+      
+          # 步骤3：删除可能已存在的旧兼容宏块
+          sed -i '/\/\* 4\.4 内核兼容宏（arm64页表）\*\//,/\/\* 兼容宏结束 \*\//d' $FILE
+      
+          # 步骤4：找到最后一个 #include 行号，在其后插入兼容宏块
+          LAST_INC=$(grep -n "^#include" $FILE | tail -1 | cut -d: -f1)
+          echo "[*] 最后一个 #include 在第 ${LAST_INC} 行"
+      
+          # 使用 head + cat + tail 方式插入（零转义风险）
+          head -n ${LAST_INC} $FILE > ${FILE}.tmp
+          cat >> ${FILE}.tmp << 'KSU_COMPAT_EOF'
+      
+          /* 4.4 内核兼容宏（arm64页表） */
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
+          /* p4d 回退：4.4 内核无5级页表，p4d 等同于 pgd */
+          #define p4d_t pgd_t
+          #define p4d_offset(pgd, addr) ((p4d_t *)(pgd))
+          #define p4d_none(p4d) 0
+          #define p4d_bad(p4d) 0
+          #define p4d_val(p4d) pgd_val(*(pgd_t *)(p4d))
+      
+          /* __pte_to_phys 回退 */
+          #define __pte_to_phys(pte) pte_to_phys(pte)
+      
+          /* copy_to_kernel_nofault 回退 */
+          #define copy_to_kernel_nofault(dst, src, size) probe_kernel_read(dst, src, size)
+      
+          /* __flush_icache_range 回退 */
+          #define __flush_icache_range(start, end) flush_icache_range(start, end)
+          #endif
+          /* 兼容宏结束 */
+          KSU_COMPAT_EOF
+          tail -n +$((LAST_INC + 1)) $FILE >> ${FILE}.tmp
+          mv ${FILE}.tmp $FILE
+          echo "[✓] 兼容宏块已插入（使用 cat 追加，零转义风险）"
+      
+          echo "=== 修复后：文件前25行 ==="
+          head -25 $FILE | cat -n
+      
+          echo "=== 兼容宏区域 ==="
+          grep -A 20 "4.4 内核兼容宏（arm64页表）" $FILE | cat -n
+      
+          # 校验
+          FAIL=0
+          if grep -q "#define p4d_t pgd_t" $FILE; then
+            echo "[✅ p4d 回退宏已就位]"
+          else
+            echo "[❌ p4d 回退宏缺失]"
+            FAIL=1
+          fi
+          if grep -q "#define __pte_to_phys" $FILE; then
+            echo "[✅ __pte_to_phys 回退已就位]"
+          else
+            echo "[❌ __pte_to_phys 回退缺失]"
+            FAIL=1
+          fi
+          if grep -q "#define copy_to_kernel_nofault" $FILE; then
+            echo "[✅ copy_to_kernel_nofault 回退已就位]"
+          else
+            echo "[❌ copy_to_kernel_nofault 回退缺失]"
+            FAIL=1
+          fi
+          if grep -q "#define __flush_icache_range" $FILE; then
+            echo "[✅ __flush_icache_range 回退已就位]"
+          else
+            echo "[❌ __flush_icache_range 回退缺失]"
+            FAIL=1
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ patch_memory.c 全部修复完成"
+
+
 
       
       - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
