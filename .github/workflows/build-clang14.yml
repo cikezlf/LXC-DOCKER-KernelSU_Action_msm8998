@@ -1434,6 +1434,118 @@ jobs:
             exit 1
           fi
           echo "✅ patch_memory.c 全部修复完成"
+      
+      
+      - name: 【兜底修复14】修复syscall_hook.h的struct pt_regs声明（缺少asm/ptrace.h）
+        id: fix-syscall-hook-header
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          FILE=drivers/kernelsu/hook/syscall_hook.h
+      
+          echo "=== 修复前：文件前10行 ==="
+          head -10 $FILE | cat -n
+      
+          # 检查是否已有 asm/ptrace.h
+          if grep -q "asm/ptrace.h" $FILE; then
+            echo "[✓] asm/ptrace.h 已存在，跳过"
+          else
+            # 在第一行之前插入
+            sed -i '1i#include <asm/ptrace.h>' $FILE
+            echo "[✓] 已在第1行插入 #include <asm/ptrace.h>"
+          fi
+      
+          echo "=== 修复后：文件前10行 ==="
+          head -10 $FILE | cat -n
+      
+          # 校验
+          if grep -q "asm/ptrace.h" $FILE; then
+            echo "[✅ asm/ptrace.h 已就位]"
+          else
+            echo "[❌ 插入失败]"
+            exit 1
+          fi
+          echo "✅ syscall_hook.h 修复完成"
+
+
+      - name: 【兜底修复15】修复syscall_hook.c的4.4内核兼容（__nocfi + 其他属性）
+        id: fix-syscall-hook-c
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          FILE=drivers/kernelsu/hook/arm64/syscall_hook.c
+      
+          echo "=== 修复前：文件前15行 ==="
+          head -15 $FILE | cat -n
+      
+          echo "=== 修复前：第145-152行 ==="
+          sed -n '145,152p' $FILE | cat -n
+      
+          # 步骤1：确保 version.h 存在
+          if ! grep -q "linux/version.h" $FILE; then
+            FIRST_INC=$(grep -n "^#include" $FILE | head -1 | cut -d: -f1)
+            sed -i "${FIRST_INC}i#include <linux/version.h>" $FILE
+            echo "[✓] 已插入 linux/version.h"
+          else
+            echo "[✓] version.h 已存在"
+          fi
+      
+          # 步骤2：确保 compiler.h 存在（__nocfi 需要）
+          if ! grep -q "linux/compiler.h" $FILE; then
+            FIRST_INC=$(grep -n "^#include" $FILE | head -1 | cut -d: -f1)
+            sed -i "${FIRST_INC}i#include <linux/compiler.h>" $FILE
+            echo "[✓] 已插入 linux/compiler.h"
+          else
+            echo "[✓] compiler.h 已存在"
+          fi
+      
+          # 步骤3：找到最后一个 #include 行号，在其后插入 __nocfi 兼容宏
+          LAST_INC=$(grep -n "^#include" $FILE | tail -1 | cut -d: -f1)
+          echo "[*] 最后一个 #include 在第 ${LAST_INC} 行"
+      
+          # 检查是否已有 __nocfi 定义
+          if grep -q "#ifndef __nocfi" $FILE; then
+            echo "[✓] __nocfi 兼容宏已存在，跳过"
+          else
+            head -n ${LAST_INC} $FILE > ${FILE}.tmp
+            cat >> ${FILE}.tmp << 'KSU_COMPAT_EOF'
+      
+            /* 4.4 内核兼容宏 */
+            #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
+            #ifndef __nocfi
+            #define __nocfi
+            #endif
+            #endif
+            /* 兼容宏结束 */
+            KSU_COMPAT_EOF
+            tail -n +$((LAST_INC + 1)) $FILE >> ${FILE}.tmp
+            mv ${FILE}.tmp $FILE
+            echo "[✓] __nocfi 兼容宏已插入"
+          fi
+      
+          echo "=== 修复后：文件前20行 ==="
+          head -20 $FILE | cat -n
+      
+          echo "=== 修复后：第145-155行 ==="
+          sed -n '145,155p' $FILE | cat -n
+      
+          # 校验
+          FAIL=0
+          if grep -q "asm/ptrace.h\|#include.*ptrace" $FILE; then
+            echo "[✅ pt_regs 声明来源已就位]"
+          else
+            echo "[⚠] pt_regs 由 syscall_hook.h 提供（已在上一步修复）"
+          fi
+          if grep -q "#define __nocfi" $FILE; then
+            echo "[✅ __nocfi 兼容宏已就位]"
+          else
+            echo "[❌ __nocfi 兼容宏缺失]"
+            FAIL=1
+          fi
+      
+          if [ $FAIL -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ syscall_hook.c 修复完成"
+
 
 
 
