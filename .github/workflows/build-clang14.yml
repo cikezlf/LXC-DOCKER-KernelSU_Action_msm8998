@@ -1466,7 +1466,7 @@ jobs:
           fi
           echo "✅ syscall_hook.h 修复完成"
 
-
+      
       - name: 【兜底修复15】修复syscall_hook.c的4.4内核兼容（__nocfi + 其他属性）
         id: fix-syscall-hook-c
         run: |
@@ -1505,35 +1505,28 @@ jobs:
           if grep -q "#ifndef __nocfi" $FILE; then
             echo "[✓] __nocfi 兼容宏已存在，跳过"
           else
+            # 使用 printf 写入兼容宏块，避免 heredoc 缩进问题
             head -n ${LAST_INC} $FILE > ${FILE}.tmp
-            cat >> ${FILE}.tmp << 'KSU_COMPAT_EOF'
-      
-            /* 4.4 内核兼容宏 */
-            #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
-            #ifndef __nocfi
-            #define __nocfi
-            #endif
-            #endif
-            /* 兼容宏结束 */
-            KSU_COMPAT_EOF
+            printf '\n/* 4.4 内核兼容宏 */\n' >> ${FILE}.tmp
+            printf '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)\n' >> ${FILE}.tmp
+            printf '#ifndef __nocfi\n' >> ${FILE}.tmp
+            printf '#define __nocfi\n' >> ${FILE}.tmp
+            printf '#endif\n' >> ${FILE}.tmp
+            printf '#endif\n' >> ${FILE}.tmp
+            printf '/* 兼容宏结束 */\n' >> ${FILE}.tmp
             tail -n +$((LAST_INC + 1)) $FILE >> ${FILE}.tmp
             mv ${FILE}.tmp $FILE
-            echo "[✓] __nocfi 兼容宏已插入"
+            echo "[✓] __nocfi 兼容宏已插入（使用 printf，避免 heredoc 缩进问题）"
           fi
       
           echo "=== 修复后：文件前20行 ==="
           head -20 $FILE | cat -n
       
-          echo "=== 修复后：第145-155行 ==="
-          sed -n '145,155p' $FILE | cat -n
+          echo "=== 修复后：第150-160行 ==="
+          sed -n '150,160p' $FILE | cat -n
       
           # 校验
           FAIL=0
-          if grep -q "asm/ptrace.h\|#include.*ptrace" $FILE; then
-            echo "[✅ pt_regs 声明来源已就位]"
-          else
-            echo "[⚠] pt_regs 由 syscall_hook.h 提供（已在上一步修复）"
-          fi
           if grep -q "#define __nocfi" $FILE; then
             echo "[✅ __nocfi 兼容宏已就位]"
           else
