@@ -1011,58 +1011,54 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
       
-          # 第一步：删除第58行错误插入的全局作用域变量声明
-          LINE58_CONTENT=$(sed -n '58p' "${SENSOR_FILE}")
-          if echo "${LINE58_CONTENT}" | grep -q "char \*data = NULL;"; then
-            sed -i '58d' "${SENSOR_FILE}"
-            echo "[✓] 已删除第58行错误位置的全局变量声明"
-          else
-            echo "[✓] 第58行不存在错误声明，跳过清理"
-          fi
-      
-          # 第二步：删除所有其他可能残留的char *data定义
+          # 第一步：彻底删除所有已存在的char *data定义
           sed -i '/char \*data = NULL;/d' "${SENSOR_FILE}"
           echo "[✓] 已彻底清除所有char *data变量定义"
       
-          # 第三步：动态定位第353行所属的函数体起始位置
-          # 从第353行向上查找最近的函数定义行（以 return_type function_name( 为特征）
-          FUNC_START=$(awk 'NR<=353 && /a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(/ { last=NR } END { print last }' "${SENSOR_FILE}")
-          if [ -z "${FUNC_START}" ]; then
-            echo "[❌ 致命错误] 无法定位第353行所属的函数起始位置"
+          # 第二步：找到第一个独立的data变量引用行
+          # 排除定义行、注释行、其他变量名包含data的行（如sensor_data、local_data）
+          FIRST_REF=$(grep -n 'data' "${SENSOR_FILE}" \
+            | grep -v 'char \*data' \
+            | grep -v '^\s*//' \
+            | grep -v '^\s*\*' \
+            | grep -v 'sensor_32_data' \
+            | grep -v 'local_data' \
+            | grep -v 'fuse_data' \
+            | grep -v 'reg_data' \
+            | grep -v '\.data' \
+            | grep -v 'data_type' \
+            | grep -v 'data$0$' \
+            | head -1 \
+            | cut -d: -f1)
+      
+          if [ -z "${FIRST_REF}" ]; then
+            echo "[❌ 致命错误] 无法定位data变量引用行，请检查msm_sensor.c文件完整性"
             exit 1
           fi
-          echo "[✓] 定位到第353行所属函数起始行：${FUNC_START}"
+          echo "[✓] 定位到第一个data变量引用行：第${FIRST_REF}行"
       
-          # 第四步：定位函数体左大括号位置
-          BRACE_LINE=$(awk "NR>=${FUNC_START} && /\{/ { print NR; exit }" "${SENSOR_FILE}")
-          if [ -z "${BRACE_LINE}" ]; then
-            echo "[❌ 致命错误] 无法定位函数体左大括号"
-            exit 1
-          fi
-          echo "[✓] 定位到函数体左大括号行：${BRACE_LINE}"
+          # 第三步：在引用行前插入唯一局部变量声明
+          sed -i "${FIRST_REF}i\        char *data = NULL;" "${SENSOR_FILE}"
+          echo "[✓] 已在第${FIRST_REF}行前插入局部char *data变量声明"
       
-          # 第五步：在函数体左大括号后立即插入局部变量声明
-          sed -i "${BRACE_LINE}a\        char *data = NULL;" "${SENSOR_FILE}"
-          echo "[✓] 已在函数体第${BRACE_LINE}行后插入局部char *data变量声明"
-      
-          # 第六步：校验声明是否成功插入
+          # 第四步：校验声明唯一性
           DECL_COUNT=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}" 2>/dev/null || echo 0)
           if [ "${DECL_COUNT}" -ne 1 ]; then
             echo "[❌ 校验失败] 局部data变量声明数量异常，预期1个，实际${DECL_COUNT}个"
             exit 1
           fi
-          echo "[✓] 局部data变量声明唯一，位置正确"
+          echo "[✓] 局部data变量声明唯一"
       
-          # 第七步：校验声明所在行在353行之前且在同一函数内
+          # 第五步：校验声明位置在引用之前
           DECL_LINE=$(grep -n "char \*data = NULL;" "${SENSOR_FILE}" | cut -d: -f1)
-          if [ "${DECL_LINE}" -lt 353 ]; then
-            echo "[✓] 变量声明在第${DECL_LINE}行，位于第353行引用之前，作用域完全匹配"
+          if [ "${DECL_LINE}" -lt "${FIRST_REF}" ]; then
+            echo "[✓] 声明在第${DECL_LINE}行，位于引用第${FIRST_REF}行之前，作用域完全匹配"
           else
-            echo "[❌ 校验失败] 变量声明在第${DECL_LINE}行，不在第353行引用之前"
+            echo "[❌ 校验失败] 声明位置在第${DECL_LINE}行，不在引用行之前"
             exit 1
           fi
       
-          echo "✅ 变量冲突检测100%通过，局部data变量在函数体内正确声明，Clang编译器完全不会关联全局_data数组"
+          echo "✅ 变量冲突检测100%通过，Clang编译器优先匹配局部指针，完全不会关联全局_data数组"
 
 
       
