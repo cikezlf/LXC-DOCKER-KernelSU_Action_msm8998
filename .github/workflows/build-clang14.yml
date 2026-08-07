@@ -915,19 +915,16 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           SENSOR_FILE=drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
-          # 直接删除所有孤立的char *data重复定义行，完全不触碰64位原生合法变量
           sed -i '/char \*data = NULL;/d' "${SENSOR_FILE}"
-          echo "[✓] 所有孤立的char *data重复变量定义行已全部删除"
-          # 二次兜底校验变量唯一
-          grep -q "char \*data = NULL;" "${SENSOR_FILE}" && {
-            echo "[✗] 兜底删除失败，残留重复定义，强制用python精准清理"
-            python3 << 'PYEOF'
-            content = open("drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c", "r", encoding="utf-8").read()
-            content = content.replace("char *data = NULL;", "")
-            open("drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c", "w", encoding="utf-8").write(content)
-            print("[✓] Python兜底清理所有char *data重定义行完成")
-            PYEOF
-          } || echo "[✓] 所有重复变量定义已彻底清除"
+          echo "[✓] sed清理完成，开始二次确认"
+          if grep -q "char \*data = NULL;" "${SENSOR_FILE}"; then
+            echo "[✗] sed未完全清除，触发perl强制兜底"
+            perl -i -pe 's/char \*data = NULL;//g' "${SENSOR_FILE}"
+          fi
+          REMAIN=$(grep -c "char \*data = NULL;" "${SENSOR_FILE}" 2>/dev/null || echo 0)
+          echo "[✓] 兜底清理全部完成，残留数量: ${REMAIN}"
+
+
       
 
 
