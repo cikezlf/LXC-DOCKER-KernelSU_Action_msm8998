@@ -1300,7 +1300,8 @@ jobs:
           echo "✅ tp_marker.c sched/task.h 修复完成"
 
 
-      - name: 【兜底修复13 修正版】修复patch_memory.c的4.4内核兼容（p4d + pte_to_phys + ksu_flush_icache + copy_to_kernel_nofault）
+      
+      - name: 【兜底修复13 再次修正版】修复patch_memory.c的4.4内核兼容（p4d + __pte_to_phys + ksu_flush_icache + copy_to_kernel_nofault）
         id: fix-patch-memory
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -1336,18 +1337,17 @@ jobs:
             echo "[✓] asm/cacheflush.h 已存在"
           fi
       
-          # 步骤4：删除之前可能残留的兼容宏块（含旧的错误定义）
+          # 步骤4：清理旧兼容宏残留
           sed -i '/\/\* 4\.4 内核兼容宏（arm64页表）\*\//,/\/\* 兼容宏结束 \*\//d' $FILE
-          # 同时删除可能残留的旧版 __pte_to_phys 错误定义
-          sed -i '/^#define __pte_to_phys(pte) pte_to_phys(pte)$/d' $FILE
-          sed -i '/^#define __flush_icache_range(start, end) flush_icache_range(start, end)$/d' $FILE
+          sed -i '/^#define __pte_to_phys(pte)/d' $FILE
+          sed -i '/^#define pte_to_phys(pte)/d' $FILE
+          sed -i '/^#define __flush_icache_range(/d' $FILE
           echo "[✓] 已清理旧兼容宏残留"
       
           # 步骤5：找到最后一个 #include 行号，在其后插入兼容宏块
           LAST_INC=$(grep -n "^#include" $FILE | tail -1 | cut -d: -f1)
           echo "[*] 最后一个 #include 在第 ${LAST_INC} 行"
       
-          # 使用 head + cat + tail 方式插入（零转义风险）
           head -n ${LAST_INC} $FILE > ${FILE}.tmp
           cat >> ${FILE}.tmp << 'KSU_COMPAT_EOF'
       
@@ -1360,7 +1360,10 @@ jobs:
           #define p4d_bad(p4d) 0
           #define p4d_val(p4d) pgd_val(*(pgd_t *)(p4d))
       
-          /* pte_to_phys：4.4 arm64 只有 __pte_to_phys，没有 pte_to_phys */
+          /* __pte_to_phys：4.4 arm64 无此函数，用 pte_pfn + __pfn_to_phys 替代 */
+          #define __pte_to_phys(pte) (__pfn_to_phys(pte_pfn(pte)))
+      
+          /* pte_to_phys：4.4 arm64 只有 __pte_to_phys 宏（上面已定义），没有 pte_to_phys */
           #define pte_to_phys(pte) __pte_to_phys(pte)
       
           /* copy_to_kernel_nofault 回退 */
@@ -1376,8 +1379,6 @@ jobs:
           echo "[✓] 兼容宏块已插入"
       
           # 步骤6：修正 ksu_flush_icache 宏定义（确保正确展开为函数调用）
-          # 原宏：#define ksu_flush_icache(start, end) __flush_icache_range
-          # 修正为函数调用形式
           if grep -q '#define ksu_flush_icache(start, end) __flush_icache_range$' $FILE; then
             sed -i 's|#define ksu_flush_icache(start, end) __flush_icache_range$|#define ksu_flush_icache(start, end) __flush_icache_range(start, end)|' $FILE
             echo "[✓] 已修正 ksu_flush_icache 宏为函数调用形式"
@@ -1391,7 +1392,7 @@ jobs:
           head -25 $FILE | cat -n
       
           echo "=== 兼容宏区域 ==="
-          grep -A 20 "4.4 内核兼容宏（arm64页表）" $FILE | cat -n
+          grep -A 22 "4.4 内核兼容宏（arm64页表）" $FILE | cat -n
       
           echo "=== ksu_flush_icache 宏定义 ==="
           grep "ksu_flush_icache" $FILE | cat -n
@@ -1404,10 +1405,10 @@ jobs:
             echo "[❌ p4d 回退宏缺失]"
             FAIL=1
           fi
-          if grep -q "#define pte_to_phys(pte) __pte_to_phys(pte)" $FILE; then
-            echo "[✅ pte_to_phys 回退已就位]"
+          if grep -q '#define __pte_to_phys(pte) (__pfn_to_phys(pte_pfn(pte)))' $FILE; then
+            echo "[✅ __pte_to_phys 回退已就位]"
           else
-            echo "[❌ pte_to_phys 回退缺失]"
+            echo "[❌ __pte_to_phys 回退缺失]"
             FAIL=1
           fi
           if grep -q "#define copy_to_kernel_nofault" $FILE; then
