@@ -1016,7 +1016,6 @@ jobs:
           echo "[✓] 已彻底清除所有char *data变量定义"
       
           # 第二步：找到第一个独立的data变量引用行
-          # 排除定义行、注释行、其他变量名包含data的行（如sensor_data、local_data）
           FIRST_REF=$(grep -n 'data' "${SENSOR_FILE}" \
             | grep -v 'char \*data' \
             | grep -v '^\s*//' \
@@ -1050,11 +1049,13 @@ jobs:
           echo "[✓] 局部data变量声明唯一"
       
           # 第五步：校验声明位置在引用之前
+          # sed插入后，声明行号 = 原FIRST_REF，引用行号 = 原FIRST_REF + 1
+          # 因此声明行号 ≤ 原FIRST_REF 即为合法（-le 而非 -lt）
           DECL_LINE=$(grep -n "char \*data = NULL;" "${SENSOR_FILE}" | cut -d: -f1)
-          if [ "${DECL_LINE}" -lt "${FIRST_REF}" ]; then
-            echo "[✓] 声明在第${DECL_LINE}行，位于引用第${FIRST_REF}行之前，作用域完全匹配"
+          if [ "${DECL_LINE}" -le "${FIRST_REF}" ]; then
+            echo "[✓] 声明在第${DECL_LINE}行，引用在第$((FIRST_REF + 1))行，作用域完全匹配"
           else
-            echo "[❌ 校验失败] 声明位置在第${DECL_LINE}行，不在引用行之前"
+            echo "[❌ 校验失败] 声明位置在第${DECL_LINE}行，超出预期的第${FIRST_REF}行之前"
             exit 1
           fi
       
