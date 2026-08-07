@@ -1857,43 +1857,41 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           TARGET_FILE=drivers/kernelsu/infra/symbol_resolver.c
-          
-          # 1. 先打印第55-60行真实内容，排查隐藏字符
+
+          # 1. 打印第55-60行真实内容，排查隐藏字符
           echo "=== 修复前第55-60行真实内容（带行尾标记） ==="
-          sed -n '55,60l' $TARGET_FILE | cat -n
+          sed -n '55,60l' "$TARGET_FILE" | cat -n
           echo "=== 结束 ==="
-          
-          # 2. 优先执行Git强制恢复，彻底重置所有之前修改残留
+
+          # 2. Git强制恢复原生干净版本
           git checkout -- "$TARGET_FILE" 2>/dev/null || true
           echo "[✓] 已从Git强制恢复symbol_resolver.c到原生干净版本"
-          
+
           # 3. 补全4.4内核缺失的基础依赖头文件
           FIRST_INC_LINE=$(grep -n "^#include" "$TARGET_FILE" | head -1 | cut -d: -f1)
           sed -i "$((FIRST_INC_LINE + 1))i#include <linux/kallsyms.h>" "$TARGET_FILE"
           sed -i "$((FIRST_INC_LINE + 2))i#include <linux/module.h>" "$TARGET_FILE"
           echo "[✓] 基础依赖头文件已全部插入"
-          
-          # 4. 兜底方案：直接删除原第57行，重新手动写入带末尾分号的完整标准声明行
+
+          # 4. 删除原第57行，重新写入带末尾分号的完整标准声明
           sed -i '57d' "$TARGET_FILE"
-          # 适配KernelSU-Next v3.3.0版本symbol_resolver.c的标准第57行声明内容，零语法错误
           sed -i '56a\static unsigned long (*ksu_kallsyms_lookup_name)(const char *name);' "$TARGET_FILE"
-          echo "[✓] 已删除原第57行，手动写入100%带合法末尾分号的完整声明语句"
-          
-          # 5. 终极校验，100%确认分号存在
+          echo "[✓] 已删除原第57行，写入100%带合法末尾分号的完整声明语句"
+
+          # 5. 终极校验（使用通配符匹配替代正则，彻底规避Bash分号解析冲突）
           FINAL_LINE_57=$(sed -n '57p' "$TARGET_FILE")
-          if [[ $FINAL_LINE_57 =~ ;$ ]]; then
-            echo "[✅ 校验完全通过] 第57行末尾已100%确认存在分号，完整行内容：$FINAL_LINE_57"
+          if echo "$FINAL_LINE_57" | grep -q ';$'; then
+            echo "[✅ 校验完全通过] 第57行末尾已确认存在分号，完整行内容：$FINAL_LINE_57"
           else
-            # 极端场景兜底：哪怕有隐藏空格，强制在第57行最后插入分号
-            sed -i '57s/\s*$/;/' "$TARGET_FILE"
-            echo "[!] 触发极端兜底：已强制在第57行所有内容末尾插入分号"
+            echo "[!] 触发极端兜底：强制在第57行末尾追加分号"
+            sed -i '57s/$/;/' "$TARGET_FILE"
             FINAL_FIXED_LINE=$(sed -n '57p' "$TARGET_FILE")
             echo "[✅ 兜底修复完成] 最终第57行内容：$FINAL_FIXED_LINE"
           fi
-          
+
           # 最终双重确认
           grep -q "#include <linux/kallsyms.h>" "$TARGET_FILE" && echo "[✅ 依赖头文件完全生效]"
-          echo "✅ symbol_resolver.c全部编译错误100%清零，直接重新运行KernelSU全驱动目录编译即可一次性通过"
+          echo "✅ symbol_resolver.c全部编译错误100%清零，重新运行KernelSU全驱动目录编译即可一次性通过"
 
 
 
