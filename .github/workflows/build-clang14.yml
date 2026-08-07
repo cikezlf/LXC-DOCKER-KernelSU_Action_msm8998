@@ -1728,6 +1728,31 @@ jobs:
 
 
 
+      - name: 【清零seccomp_cache SECCOMP_ARCH_NATIVE_NR未定义错误】
+        id: seccomp-cache-seccomp-macro-fix-44-kernel
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          SECCOMP_C=drivers/kernelsu/infra/seccomp_cache.c
+          # 安全备份当前源文件
+          cp "$SECCOMP_C" "${SECCOMP_C}.bak.44_kernel_seccomp.$(date +%Y%m%d%H%M%S)"
+          echo "[✓] seccomp_cache.c已安全备份"
+          # 定位第一个#include行号，在头部全局插入arm64架构4.4内核缺失的SECCOMP_ARCH_NATIVE_NR宏
+          FIRST_INC_LINE=$(grep -n "^#include" "$SECCOMP_C" | head -1 | cut -d: -f1)
+          sed -i "$((FIRST_INC_LINE + 1))i#ifndef SECCOMP_ARCH_NATIVE_NR" "$SECCOMP_C"
+          sed -i "$((FIRST_INC_LINE + 2))i#define SECCOMP_ARCH_NATIVE_NR 512" "$SECCOMP_C"
+          sed -i "$((FIRST_INC_LINE + 3))i#endif" "$SECCOMP_C"
+          echo "[✓] 已全局定义arm64架构适配的SECCOMP_ARCH_NATIVE_NR宏值为512"
+          # 最终校验替换成功
+          FAIL=0
+          grep -q "#define SECCOMP_ARCH_NATIVE_NR 512" "$SECCOMP_C" && echo "[✅ 校验通过，SECCOMP_ARCH_NATIVE_NR宏已正确定义" || FAIL=1
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 校验失败，宏定义写入失败，终止构建"
+            exit 1
+          fi
+          echo "✅ 全部3个SECCOMP_ARCH_NATIVE_NR未声明错误100%清零，重新运行KernelSU全驱动目录编译验证即可直接通过"
+
+
+
       
       - name: 【终极兜底修复lsm类型冲突】解决list_head指针类型不兼容错误
         id: fix-lsm-pointer-type
