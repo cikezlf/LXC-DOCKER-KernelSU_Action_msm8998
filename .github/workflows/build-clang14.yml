@@ -943,62 +943,67 @@ jobs:
           grep -n -E "(list_for_each_entry|->prev|->next|NULL)" $LSM_FILE | head -20
           echo "========== 完成 =========="
 
-      - name: 【兜底修复6.1】强制修复lsm_hook.c中pprev和lsm残留（perl精准替换）
-        id: fix-lsm-hook-pprev-lsm-final
+
+      
+      - name: 【兜底修复6.2】修复lsm_hook.c中&head->next类型错误和listNULL残留
+        id: fix-lsm-hook-next-and-lsm
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           LSM_FILE=drivers/kernelsu/hook/lsm_hook.c
       
-          echo "========== 修复前精确内容 =========="
-          echo "--- 包含pprev的行 ---"
-          grep -n "pprev" $LSM_FILE || echo "无pprev行"
-          echo "--- 包含->lsm的行 ---"
-          grep -n "\->lsm" $LSM_FILE || echo "无->lsm行"
-          echo "--- 第340-350行完整内容 ---"
+          echo "========== 修复前第340-350行 =========="
           sed -n '340,350p' $LSM_FILE
-          echo "========== 开始强力修复 =========="
+          echo "========== 开始修复 =========="
       
-          # 1. perl -0777 全局替换 pprev → prev
-          perl -0777 -i -pe 's/->pprev/->prev/g' $LSM_FILE
-          perl -0777 -i -pe 's/\.pprev/.prev/g' $LSM_FILE
-          echo "[✓] pprev → prev（perl全局替换）"
+          # 修复1：&head->next → head（list_head中prev指向head本身，而非head->next的地址）
+          perl -0777 -i -pe 's/&\s*(\w+)\s*->\s*next\s*;/\1;/g' $LSM_FILE
+          echo "[✓] &xxx->next → xxx（list_head prev指向head本身）"
       
-          # 2. 删除所有 ->lsm = xxx 赋值行
-          perl -0777 -i -pe 's/^\s*->lsm\s*=.*$//gm' $LSM_FILE
-          echo "[✓] ->lsm赋值行已删除"
+          # 修复2：删除所有包含 .lsm = 或 ->lsm = 的赋值行（4.4内核无此成员）
+          perl -0777 -i -pe 's/^\s*\S+\s*\.lsm\s*=.*$//gm' $LSM_FILE
+          perl -0777 -i -pe 's/^\s*\S+\s*->lsm\s*=.*$//gm' $LSM_FILE
+          echo "[✓] 所有 .lsm = / ->lsm = 赋值行已删除"
       
-          # 3. 替换所有 ->lsm 引用为 NULL
-          perl -0777 -i -pe 's/->lsm/NULL/g' $LSM_FILE
-          perl -0777 -i -pe 's/\.lsm/NULL/g' $LSM_FILE
-          echo "[✓] ->lsm/.lsm 引用已替换为NULL"
+          # 修复3：清理可能残留的 listNULL 等错误拼接
+          perl -0777 -i -pe 's/->listNULL/->list/g' $LSM_FILE
+          perl -0777 -i -pe 's/\.listNULL/.list/g' $LSM_FILE
+          echo "[✓] listNULL 错误拼接已修复"
       
-          # 4. 额外清理可能残留的空行（连续空行合并为单个）
+          # 修复4：清理多余空行
           perl -0777 -i -pe 's/\n\n\n+/\n\n/g' $LSM_FILE
-          echo "[✓] 多余空行已清理"
       
           echo ""
-          echo "========== 修复后验证 =========="
-          echo "--- pprev残留 ---"
-          if grep -q "pprev" $LSM_FILE; then
-            echo "[❌] 仍有pprev残留!"
-            grep -n "pprev" $LSM_FILE
+          echo "========== 修复后第340-355行 =========="
+          sed -n '340,355p' $LSM_FILE
+          echo "========== 最终校验 =========="
+      
+          # 校验1：不应再有 &xxx->next
+          if grep -nP '&\s*\w+\s*->\s*next' $LSM_FILE; then
+            echo "[❌] 仍有&xxx->next残留"
             exit 1
           else
-            echo "[✅] 0处pprev残留"
+            echo "[✅] 无&xxx->next残留"
           fi
       
-          echo "--- lsm残留 ---"
-          if grep -q "\->lsm\|\.lsm" $LSM_FILE; then
-            echo "[❌] 仍有lsm残留!"
-            grep -n "\->lsm\|\.lsm" $LSM_FILE
+          # 校验2：不应再有 lsm 赋值
+          if grep -nP '\.lsm\s*=|->lsm\s*=' $LSM_FILE; then
+            echo "[❌] 仍有lsm赋值残留"
             exit 1
           else
-            echo "[✅] 0处lsm残留"
+            echo "[✅] 无lsm赋值残留"
           fi
       
-          echo "--- 第340-350行修复后内容 ---"
-          sed -n '340,350p' $LSM_FILE
-          echo "========== 修复完成 =========="
+          # 校验3：不应再有 listNULL
+          if grep -n "listNULL" $LSM_FILE; then
+            echo "[❌] 仍有listNULL残留"
+            exit 1
+          else
+            echo "[✅] 无listNULL残留"
+          fi
+      
+          echo "[✓] lsm_hook.c修复完成"
+
+
 
 
 
