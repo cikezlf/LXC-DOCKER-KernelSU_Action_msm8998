@@ -1075,41 +1075,46 @@ jobs:
           echo "[*] 第一个 #include 在第 ${FIRST_INC} 行"
       
           if ! grep -q "linux/version.h" $BRIDGE_FILE; then
-            sed -i "${FIRST_INC}i\#include <linux/version.h>" $BRIDGE_FILE
+            sed -i "${FIRST_INC}i#include <linux/version.h>" $BRIDGE_FILE
             FIRST_INC=$((FIRST_INC + 1))
             echo "[✓] 已插入 linux/version.h"
           fi
       
           if ! grep -q "linux/uaccess.h" $BRIDGE_FILE; then
-            sed -i "${FIRST_INC}i\#include <linux/uaccess.h>" $BRIDGE_FILE
+            sed -i "${FIRST_INC}i#include <linux/uaccess.h>" $BRIDGE_FILE
             echo "[✓] 已插入 linux/uaccess.h"
           fi
       
-          # 步骤3：找到最后一个 #include 行号，在其后插入兼容宏块
+          # 步骤3：删除可能已存在的旧兼容宏块
+          sed -i '/\/\* 4.4 内核兼容宏 \*\//,/\/\* 兼容宏结束 \*\//d' $BRIDGE_FILE
+      
+          # 步骤4：找到最后一个 #include 行号
           LAST_INC=$(grep -n "^#include" $BRIDGE_FILE | tail -1 | cut -d: -f1)
           echo "[*] 最后一个 #include 在第 ${LAST_INC} 行"
       
-          # 删除可能已存在的旧兼容宏块
-          sed -i '/\/\* 4\.4 内核兼容宏 \*\//,/\/\* 兼容宏结束 \*\//d' $BRIDGE_FILE
+          # 步骤5：使用临时文件 + cat 追加兼容宏块（避免 sed 转义地狱）
+          head -n ${LAST_INC} $BRIDGE_FILE > ${BRIDGE_FILE}.tmp
+          cat >> ${BRIDGE_FILE}.tmp << 'KSU_COMPAT_EOF'
       
-          # 在最后一个 #include 之后插入兼容宏块
-          sed -i "${LAST_INC}a\\
-      \\
-      /* 4.4 内核兼容宏 */\\
-      #ifndef __nocfi\\
-      #define __nocfi\\
-      #endif\\
-      \\
-      /* 静态键回退定义 */\\
-      #include <linux/static_key.h>\\
-      #ifndef DEFINE_STATIC_KEY_TRUE\\
-      #define DEFINE_STATIC_KEY_TRUE(name)  static struct static_key name = STATIC_KEY_INIT\\
-      #define static_branch_enable(key)     static_key_slow_inc(key)\\
-      #define static_branch_disable(key)    static_key_slow_dec(key)\\
-      #define static_branch_likely(key)     static_key_false(key)\\
-      #define static_branch_unlikely(key)   static_key_true(key)\\
-      #endif\\
-      /* 兼容宏结束 */" $BRIDGE_FILE
+          /* 4.4 内核兼容宏 */
+          #ifndef __nocfi
+          #define __nocfi
+          #endif
+      
+          /* 静态键回退定义 */
+          #include <linux/static_key.h>
+          #ifndef DEFINE_STATIC_KEY_TRUE
+          #define DEFINE_STATIC_KEY_TRUE(name)  static struct static_key name = STATIC_KEY_INIT
+          #define static_branch_enable(key)     static_key_slow_inc(key)
+          #define static_branch_disable(key)    static_key_slow_dec(key)
+          #define static_branch_likely(key)     static_key_false(key)
+          #define static_branch_unlikely(key)   static_key_true(key)
+          #endif
+          /* 兼容宏结束 */
+          KSU_COMPAT_EOF
+          tail -n +$((LAST_INC + 1)) $BRIDGE_FILE >> ${BRIDGE_FILE}.tmp
+          mv ${BRIDGE_FILE}.tmp $BRIDGE_FILE
+          echo "[✓] 兼容宏块已插入（使用 cat 追加，零转义风险）"
       
           echo "=== 修复后：文件前20行 ==="
           head -20 $BRIDGE_FILE | cat -n
