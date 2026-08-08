@@ -204,51 +204,6 @@ jobs:
           echo "✅ 第六步校验通过"
 
 
-      - name: 适配修复 禁用VDSO32编译选项，彻底消除32位链接依赖
-        id: disable-vdso32
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
-          sed -i '/CONFIG_VDSO32/d' out/.config
-          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
-          echo "# CONFIG_VDSO32 is not set" >> out/.config
-          sed -i 's/CONFIG_64BIT_VDSO_COMPAT=y/# CONFIG_64BIT_VDSO_COMPAT is not set/g' out/.config
-          make O=out ARCH=arm64 olddefconfig
-          sed -i '/CONFIG_VDSO32/d' out/.config
-          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
-          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
-          echo "# CONFIG_VDSO32 is not set" >> out/.config
-          echo "[✓] VDSO32 全链路禁用完成，切断Kbuild自动恢复逻辑"
-
-      
-      - name: 校验 VDSO32禁用确认
-        run: |
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          FAIL=0
-          if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE"; then
-            echo "[✗] CONFIG_COMPAT_VDSO 被自动恢复为开启状态"
-            FAIL=1
-          else
-            echo "[✓] CONFIG_COMPAT_VDSO 已永久禁用"
-          fi
-          if grep -q "^CONFIG_VDSO32=y" "$CONFIG_FILE"; then
-            echo "[✗] CONFIG_VDSO32 被自动恢复为开启状态"
-            FAIL=1
-          else
-            echo "[✓] CONFIG_VDSO32 已永久禁用"
-          fi
-          VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/Makefile
-          if grep -q "vdso32" "$VDSO_MAKEFILE"; then
-            sed -i '/vdso32/d' "$VDSO_MAKEFILE"
-            echo "[✓] 已从内核Makefile移除vdso32编译规则，彻底跳过32位构建分支"
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ VDSO32禁用校验失败，终止"
-            exit 1
-          fi
-          echo "✅ VDSO32 适配校验通过，完全消除32位链接冲突"
-
-
 
 
 
@@ -801,65 +756,6 @@ jobs:
 
 
 
-
-
-
-      - name: 【适配修复终极】完全禁用32位COMPAT兼容层，彻底移除32位编译依赖
-        id: disable-full-32bit
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i '/CONFIG_COMPAT=y/d' out/.config
-          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
-          sed -i '/CONFIG_VDSO32/d' out/.config
-          echo "# CONFIG_COMPAT is not set" >> out/.config
-          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
-          echo "# CONFIG_VDSO32 is not set" >> out/.config
-          sed -i '/vdso32/d' arch/arm64/kernel/Makefile
-          make O=out ARCH=arm64 olddefconfig
-          sed -i '/CONFIG_COMPAT=y/d' out/.config
-          sed -i '/CONFIG_COMPAT_VDSO/d' out/.config
-          sed -i '/CONFIG_VDSO32/d' out/.config
-          echo "# CONFIG_COMPAT is not set" >> out/.config
-          echo "# CONFIG_COMPAT_VDSO is not set" >> out/.config
-          echo "# CONFIG_VDSO32 is not set" >> out/.config
-          echo "[✓] 全链路32位兼容层已完全禁用，彻底移除所有32位编译逻辑"
-
-      - name: 【校验·全量32位禁用确认】
-        run: |
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          FAIL=0
-          if grep -q "^CONFIG_COMPAT=y" "$CONFIG_FILE"; then
-            echo "[✗] CONFIG_COMPAT 被自动恢复为开启状态"
-            FAIL=1
-          else
-            echo "[✓] CONFIG_COMPAT 已永久禁用"
-          fi
-          if grep -q "^CONFIG_COMPAT_VDSO=y" "$CONFIG_FILE"; then
-            echo "[✗] CONFIG_COMPAT_VDSO 被自动恢复为开启状态"
-            FAIL=1
-          else
-            echo "[✓] CONFIG_COMPAT_VDSO 已永久禁用"
-          fi
-          if grep -q "^CONFIG_VDSO32=y" "$CONFIG_FILE"; then
-            echo "[✗] CONFIG_VDSO32 被自动恢复为开启状态"
-            FAIL=1
-          else
-            echo "[✓] CONFIG_VDSO32 已永久禁用"
-          fi
-          VDSO_MAKEFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/kernel/Makefile
-          if grep -q "vdso32" "$VDSO_MAKEFILE"; then
-            echo "[✗] Makefile中仍残留vdso32编译规则"
-            FAIL=1
-          else
-            echo "[✓] Makefile中已完全移除vdso32编译规则"
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 32位兼容层禁用校验失败，终止构建"
-            exit 1
-          fi
-          echo "✅ 全量32位禁用适配校验通过，完全消除32位链接隐性中断"
-
-
       - name: 【修复msm_sensor.c最终兜底回滚】从原始完整备份恢复文件，100%重置损坏结构
         id: msm-sensor-final-rollback
         run: |
@@ -1246,18 +1142,18 @@ jobs:
           echo "[✓] 全量编译环境变量初始化完成"
       
           # -------------------------- 第五层：启动全量内核编译 --------------------------
-          - name: 开始编译内核
-            run: |
-              cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-              export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
-              export KBUILD_BUILD_HOST=17
-              export KBUILD_BUILD_USER=HyperPower
-              make -s -j$(nproc --all) O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
-              if [ ${{env.LLVM_CONFIG}}=y ]; then
-              make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_ARM32="arm-linux-gnueabi-" KCFLAGS="-Wno-error" LLVM=1 LLVM_IAS=1
-              else
-              make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_ARM32="arm-linux-gnueabi-" KCFLAGS="-Wno-error"
-              fi
+          echo ""
+          echo "=== 启动Clang全量内核编译 ==="
+          make O=out \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            -j$(nproc) 2>&1 | tee full_build_detail.log
+          BUILD_EXIT_CODE=$PIPESTATUS
       
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
