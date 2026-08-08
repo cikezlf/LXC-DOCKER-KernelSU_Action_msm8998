@@ -1335,15 +1335,29 @@ jobs:
       - name: 【第十一步 全量重写】内核全量编译
         id: step11
         run: |
-          # -------------------------- 第一层：清理历史遗留规则 --------------------------
+          # -------------------------- 新增：非交互式配置同步修复，彻底解决silentoldconfig交互式弹窗aborted错误 --------------------------
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          DEFCONFIG=out/.config
+          echo "=== 执行预修复：清理重复配置行 + 预配置所有新弹出的Netfilter选项 ==="
+          # 第一步：自动清理.config中重复写入的重复行，消除ANDROID_PARANOID_NETWORK override告警
+          awk '!seen[$0]++' "$DEFCONFIG" > .config.tmp && mv .config.tmp "$DEFCONFIG"
+          echo "[✓] 已清理.config中的重复配置行，完全消除ANDROID_PARANOID_NETWORK重复赋值告警"
+          # 第二步：预先启用触发交互式弹窗的NF_TABLES_INET选项，完全屏蔽NEW配置选择弹窗
+          sed -i 's/.*CONFIG_NF_TABLES_INET.*/CONFIG_NF_TABLES_INET=y/' "$DEFCONFIG"
+          grep -q "^CONFIG_NF_TABLES_INET=y" "$DEFCONFIG" || echo "CONFIG_NF_TABLES_INET=y" >> "$DEFCONFIG"
+          echo "[✓] 已预先启用NF_TABLES_INET选项，彻底消除新增交互式配置弹窗的触发源"
+          # 第三步：全量自动同步所有配置，yes命令自动应答所有回车选择，全程非交互式无任何弹窗
+          yes "" | make O=out ARCH=arm64 olddefconfig
+          echo "[✓] 全量非交互式olddefconfig同步完成，所有新配置项自动适配完毕"
+    
+          # -------------------------- 第一层：清理历史遗留规则 --------------------------
           echo "=== 清理历史遗留Werror配置 ==="
           sed -i '/KBUILD_CFLAGS.*-Wno-error=int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-implicit-function-declaration/d' Makefile
           echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
-
+    
           # -------------------------- 第二层：写入六层强制豁免规则 --------------------------
           echo ""
           echo "=== 写入六层Werror豁免规则 ==="
@@ -1359,7 +1373,7 @@ jobs:
           echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
           echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
           echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
-
+    
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
           echo "=== 校验豁免规则写入结果 ==="
@@ -1404,8 +1418,8 @@ jobs:
             exit 1
           fi
           echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
-
-      
+    
+    
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
           echo "=== 初始化编译全局环境变量 ==="
@@ -1416,7 +1430,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=/usr/bin/arm-linux-gnueabi-
           echo "[✓] 全量编译环境变量初始化完成"
-      
+    
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
           echo "=== 启动Clang全量内核编译 ==="
@@ -1430,7 +1444,7 @@ jobs:
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
           BUILD_EXIT_CODE=$PIPESTATUS
-      
+    
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
           echo "=== 全量错误日志分析 ==="
@@ -1444,8 +1458,8 @@ jobs:
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
           grep -n -i "compat_ptr" full_build_detail.log || echo "[!] 日志中无compat_ptr相关错误"
-
-      
+    
+    
           # -------------------------- 第七层：编译结果状态判定 --------------------------
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
@@ -1453,7 +1467,8 @@ jobs:
             tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被六层规则完全屏蔽"
+
 
 
 
