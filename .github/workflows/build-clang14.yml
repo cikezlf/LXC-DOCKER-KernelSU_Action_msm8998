@@ -985,12 +985,44 @@ jobs:
 
 
       
+ #     - name: 恢复 msm_sensor.c 原始文件
+ #       run: |
+ #         cd kernel_workspace/android-kernel
+ #         git checkout -- drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
+  
+
       - name: 恢复 msm_sensor.c 原始文件
         run: |
           cd kernel_workspace/android-kernel
           git checkout -- drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
-  
-
+      
+      - name: 校验 msm_sensor.c 恢复成功
+        run: |
+          cd kernel_workspace/android-kernel
+          if grep -q "f_conf_array" drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c; then
+            echo "✅ 文件已成功恢复，f_conf_array 定义存在"
+          else
+            echo "❌ 恢复失败，未找到 f_conf_array 定义"
+            exit 1
+          fi
+          if grep -q "CONFIG_COMPAT" drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c; then
+            echo "✅ 32位兼容代码已恢复"
+          else
+            echo "❌ 32位兼容代码缺失"
+            exit 1
+          fi
+      
+      - name: 校验 msm_sensor.c 单文件编译测试
+        run: |
+          cd kernel_workspace/android-kernel
+          make O=out M=drivers/media/platform/msm/camera_v2/sensor modules 2>&1 | tee /tmp/msm_sensor_build.log
+          if grep -q "error:" /tmp/msm_sensor_build.log; then
+            echo "❌ msm_sensor.c 编译失败，存在错误"
+            grep "error:" /tmp/msm_sensor_build.log
+            exit 1
+          else
+            echo "✅ msm_sensor.c 编译通过，恢复成功"
+          fi
 
 
 
