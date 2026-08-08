@@ -470,6 +470,15 @@ jobs:
           echo "✅ 第九步校验通过"
 
 
+      # ==================== 新增：独立非交互式olddefconfig同步，提前解析所有配置依赖 ====================
+      - name: 【前置同步】非交互式全量依赖预同步，提前消化Kconfig所有配置变更
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          yes "" | make O=out ARCH=arm64 olddefconfig
+          echo "[✓] 预同步完成，所有配置依赖关系已提前解析，无任何交互式弹窗"
+
+
+
 
       - name: 【第十步后置】olddefconfig 同步后二次强制锁定 + 全量校验
         run: |
