@@ -1246,18 +1246,18 @@ jobs:
           echo "[✓] 全量编译环境变量初始化完成"
       
           # -------------------------- 第五层：启动全量内核编译 --------------------------
-          echo ""
-          echo "=== 启动Clang全量内核编译 ==="
-          make O=out \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            -j$(nproc) 2>&1 | tee full_build_detail.log
-          BUILD_EXIT_CODE=$PIPESTATUS
+          - name: 开始编译内核
+            run: |
+              cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+              export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
+              export KBUILD_BUILD_HOST=17
+              export KBUILD_BUILD_USER=HyperPower
+              make -s -j$(nproc --all) O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+              if [ ${{env.LLVM_CONFIG}}=y ]; then
+              make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_ARM32="arm-linux-gnueabi-" KCFLAGS="-Wno-error" LLVM=1 LLVM_IAS=1
+              else
+              make -j$(nproc --all) CC="ccache clang" O=out ARCH=arm64 CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_ARM32="arm-linux-gnueabi-" KCFLAGS="-Wno-error"
+              fi
       
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
