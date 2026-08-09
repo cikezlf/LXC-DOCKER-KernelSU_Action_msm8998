@@ -207,6 +207,10 @@ jobs:
 
 
 
+# ============================================================
+# 第七步：写入 Docker/LXC 全量配置 + 全量校验
+# 文件：bulid-clang188.yml.txt 完整第七步段落
+# ============================================================
       - name: 【第七步】写入 Docker/LXC 全量配置 + 全量校验
         id: step7
         run: |
@@ -292,6 +296,16 @@ jobs:
           add_config "CONFIG_IP6_NF_FILTER=y"
           add_config "CONFIG_IP6_NF_NAT=y"
           add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+          # --- 新增网络扩展（依赖：CONFIG_NETFILTER=y）---
+          add_config "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+          add_config "CONFIG_IP_SCTP=y"
+          # --- 新增Netfilter Tables扩展（依赖：CONFIG_NF_TABLES=y）---
+          add_config "CONFIG_NFT_CT=y"
+          add_config "CONFIG_NFT_FIB=y"
+          add_config "CONFIG_NFT_FIB_IPV4=y"
+          add_config "CONFIG_NFT_FIB_IPV6=y"
+          # --- 新增桥接VLAN过滤（依赖：CONFIG_BRIDGE=y）---
+          add_config "CONFIG_BRIDGE_VLAN_FILTERING=y"
 
           echo "===== 5. 存储与文件系统 ====="
           add_config "CONFIG_OVERLAY_FS=y"
@@ -326,6 +340,12 @@ jobs:
           echo "===== 8. 容器热迁移与功能修复 ====="
           add_config "CONFIG_CHECKPOINT_RESTORE=y"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+
+          echo "===== 9. 新增ZFS完整支持 ====="
+          # --- 新增ZFS文件系统（依赖：CONFIG_MODULES=y, CONFIG_BLK_DEV=y）---
+          add_config "CONFIG_ZFS=y"
+          add_config "CONFIG_ZFS_POSIX_ACL=y"
+          add_config "CONFIG_ZFS_XATTR=y"
 
           echo ""
           echo "[✓] 第七步全部 Docker/LXC 配置写入完成"
@@ -398,6 +418,13 @@ jobs:
             "CONFIG_IP6_NF_FILTER=y"
             "CONFIG_IP6_NF_NAT=y"
             "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+            "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+            "CONFIG_IP_SCTP=y"
+            "CONFIG_NFT_CT=y"
+            "CONFIG_NFT_FIB=y"
+            "CONFIG_NFT_FIB_IPV4=y"
+            "CONFIG_NFT_FIB_IPV6=y"
+            "CONFIG_BRIDGE_VLAN_FILTERING=y"
             "CONFIG_OVERLAY_FS=y"
             "CONFIG_EXT4_FS=y"
             "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -423,6 +450,9 @@ jobs:
             "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
             "CONFIG_FHANDLE=y"
             "CONFIG_CHECKPOINT_RESTORE=y"
+            "CONFIG_ZFS=y"
+            "CONFIG_ZFS_POSIX_ACL=y"
+            "CONFIG_ZFS_XATTR=y"
           )
 
           for check in "${ALL_CHECKS[@]}"; do
@@ -480,6 +510,10 @@ jobs:
 
 
 
+# ============================================================
+# 第十步后置：olddefconfig 同步后二次强制锁定 + 全量校验
+# 文件：bulid-clang188.yml.txt 完整第十步段落
+# ============================================================
       - name: 【第十步后置】olddefconfig 同步后二次强制锁定 + 全量校验
         run: |
           cd $GITHUB_WORKSPACE
@@ -565,6 +599,16 @@ jobs:
           add_config "CONFIG_IP6_NF_FILTER=y"
           add_config "CONFIG_IP6_NF_NAT=y"
           add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+          # --- 新增网络扩展（依赖：CONFIG_NETFILTER=y）---
+          add_config "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+          add_config "CONFIG_IP_SCTP=y"
+          # --- 新增Netfilter Tables扩展（依赖：CONFIG_NF_TABLES=y）---
+          add_config "CONFIG_NFT_CT=y"
+          add_config "CONFIG_NFT_FIB=y"
+          add_config "CONFIG_NFT_FIB_IPV4=y"
+          add_config "CONFIG_NFT_FIB_IPV6=y"
+          # --- 新增桥接VLAN过滤（依赖：CONFIG_BRIDGE=y）---
+          add_config "CONFIG_BRIDGE_VLAN_FILTERING=y"
 
           echo "===== 5. 存储与文件系统（全量）====="
           add_config "CONFIG_OVERLAY_FS=y"
@@ -599,6 +643,12 @@ jobs:
           echo "===== 8. 容器热迁移与功能修复 ====="
           add_config "CONFIG_CHECKPOINT_RESTORE=y"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+
+          echo "===== 9. 新增ZFS完整支持 ====="
+          # --- 新增ZFS文件系统（依赖：CONFIG_MODULES=y, CONFIG_BLK_DEV=y）---
+          add_config "CONFIG_ZFS=y"
+          add_config "CONFIG_ZFS_POSIX_ACL=y"
+          add_config "CONFIG_ZFS_XATTR=y"
 
           echo ""
           echo "[✓] 第十步后置全量配置二次锁定完成"
@@ -673,6 +723,13 @@ jobs:
             "CONFIG_IP6_NF_FILTER=y"
             "CONFIG_IP6_NF_NAT=y"
             "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+            "CONFIG_NETFILTER_XT_MATCH_IPVS=y"
+            "CONFIG_IP_SCTP=y"
+            "CONFIG_NFT_CT=y"
+            "CONFIG_NFT_FIB=y"
+            "CONFIG_NFT_FIB_IPV4=y"
+            "CONFIG_NFT_FIB_IPV6=y"
+            "CONFIG_BRIDGE_VLAN_FILTERING=y"
             "CONFIG_OVERLAY_FS=y"
             "CONFIG_EXT4_FS=y"
             "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -697,6 +754,9 @@ jobs:
             "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
             "CONFIG_FHANDLE=y"
             "CONFIG_CHECKPOINT_RESTORE=y"
+            "CONFIG_ZFS=y"
+            "CONFIG_ZFS_POSIX_ACL=y"
+            "CONFIG_ZFS_XATTR=y"
           )
 
           for check in "${ALL_CHECKS[@]}"; do
@@ -730,6 +790,9 @@ jobs:
           fi
           echo ""
           echo "✅ 最终全量校验通过，全部 ${TOTAL} 项 Docker/LXC 配置已锁定为开启状态，允许进入编译"
+
+
+
 
       
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
