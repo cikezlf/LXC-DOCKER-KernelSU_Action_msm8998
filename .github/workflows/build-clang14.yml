@@ -730,7 +730,8 @@ jobs:
           sed -i 's/.*CONFIG_NFT_CT.*/CONFIG_NFT_CT=y/' "$DEFCONFIG"
           grep -q "^CONFIG_NFT_CT=y" "$DEFCONFIG" || echo "CONFIG_NFT_CT=y" >> "$DEFCONFIG"
           cd kernel_workspace/android-kernel
-          yes "" | make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 olddefconfig
+          cd $GITHUB_WORKSPACE
           echo "[✓] Netfilter FIB前置依赖补全，重新同步后三个FIB配置全部生效"
           
           sed -i 's/.*CONFIG_ZFS.*/CONFIG_ZFS=y/' "$DEFCONFIG"
@@ -738,6 +739,7 @@ jobs:
           sed -i 's/.*CONFIG_ZFS_XATTR.*/CONFIG_ZFS_XATTR=y/' "$DEFCONFIG"
           sed -i 's/.*CONFIG_ZFS_DEBUG.*/CONFIG_ZFS_DEBUG=n/' "$DEFCONFIG"
           echo "[✓] ZFS全量配置强制锁定完成"
+
 
           
           echo "===== 全量配置最终校验 ====="
