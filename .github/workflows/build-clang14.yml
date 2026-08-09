@@ -323,7 +323,7 @@ jobs:
           add_config "CONFIG_FW_LOADER=y"
           add_config "CONFIG_DEVTMPFS=y"
           add_config "CONFIG_DEVTMPFS_MOUNT=y"
-          add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
+
 
           echo "===== 6. 安全机制（全量）====="
           add_config "CONFIG_SECCOMP=y"
@@ -332,12 +332,23 @@ jobs:
           add_config "CONFIG_BPF=y"
           add_config "CONFIG_BPF_SYSCALL=y"
           add_config "CONFIG_BPF_JIT=y"
+          add_config "CONFIG_CGROUP_BPF=y"
 
           echo "===== 7. 进程间通信与通用功能 ====="
           add_config "CONFIG_SYSVIPC=y"
           add_config "CONFIG_POSIX_MQUEUE=y"
+          add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           add_config "CONFIG_FHANDLE=y"
+
+          echo "===== 8. 容器热迁移与功能修复 ====="
           add_config "CONFIG_CHECKPOINT_RESTORE=y"
+          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+
+          echo "===== 9. 新增ZFS完整支持 ====="
+          add_config "CONFIG_ZFS=y"
+          add_config "CONFIG_ZFS_POSIX_ACL=y"
+          add_config "CONFIG_ZFS_XATTR=y"
+          add_config "CONFIG_ZFS_DEBUG=n"
 
           echo "[✓] Docker/LXC 全量配置写入完成"
 
@@ -436,17 +447,21 @@ jobs:
             "CONFIG_FW_LOADER=y"
             "CONFIG_DEVTMPFS=y"
             "CONFIG_DEVTMPFS_MOUNT=y"
-            "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
             "CONFIG_SECCOMP=y"
             "CONFIG_SECCOMP_FILTER=y"
             "CONFIG_SECURITY_APPARMOR=y"
             "CONFIG_BPF=y"
             "CONFIG_BPF_SYSCALL=y"
             "CONFIG_BPF_JIT=y"
+            "CONFIG_CGROUP_BPF=y"
             "CONFIG_SYSVIPC=y"
             "CONFIG_POSIX_MQUEUE=y"
+            "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
             "CONFIG_FHANDLE=y"
             "CONFIG_CHECKPOINT_RESTORE=y"
+            "CONFIG_ZFS=y"
+            "CONFIG_ZFS_POSIX_ACL=y"
+            "CONFIG_ZFS_XATTR=y"
           )
 
           for check in "${ALL_CHECKS[@]}"; do
@@ -621,6 +636,8 @@ jobs:
           add_config "CONFIG_DEVTMPFS=y"
           add_config "CONFIG_DEVTMPFS_MOUNT=y"
 
+
+
           echo "===== 6. 安全机制（全量）====="
           add_config "CONFIG_SECCOMP=y"
           add_config "CONFIG_SECCOMP_FILTER=y"
@@ -663,7 +680,10 @@ jobs:
             "CONFIG_NFT_FIB=y"
             "CONFIG_NFT_FIB_IPV4=y"
             "CONFIG_NFT_FIB_IPV6=y"
+            "CONFIG_BRIDGE_VLAN_FILTERING=y"
             "CONFIG_ZFS=y"
+            "CONFIG_ZFS_POSIX_ACL=y"
+            "CONFIG_ZFS_XATTR=y"
           )
           for critical in "${CRITICAL_MISS_ITEMS[@]}"; do
             TOTAL=$((TOTAL + 1))
@@ -734,6 +754,7 @@ jobs:
             "CONFIG_CGROUP_HUGETLB=y"
             "CONFIG_NET_CLS_CGROUP=y"
             "CONFIG_BLK_DEV_THROTTLING=y"
+            "CONFIG_CGROUP_BPF=y"
             "CONFIG_VETH=y"
             "CONFIG_BRIDGE=y"
             "CONFIG_BRIDGE_NETFILTER=y"
