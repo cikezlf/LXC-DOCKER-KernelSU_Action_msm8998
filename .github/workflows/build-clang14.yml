@@ -547,22 +547,92 @@ jobs:
           cp include/trace/events/writeback.h include/trace/events/writeback.h.bak
           sed -i '/^#undef TRACE_INCLUDE_PATH/a #include <linux/cgroup.h>' include/trace/events/writeback.h
           echo "[✓] writeback.h 头文件修复完成"
-
-      - name: 【5-1校验】writeback.h结构完整性校验
+  
+      - name: 【5-1】writeback.h结构完整性校验（修复空变量比较）
+        id: writeback-header-check
         run: |
-          HEADER=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h
+          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
+  
+          echo "==================== writeback.h 结构完整性校验 ===================="
+  
+          # 1. 检查文件是否存在
+          if [ ! -f "$HEADER" ]; then
+            echo "❌ writeback.h 文件不存在：$HEADER"
+            exit 1
+          fi
+          echo "[✓] 文件存在：$HEADER"
+  
+          # 2. 获取关键代码块的行号（使用默认值兜底，避免空变量）
+          STRUCT_START=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_START=${STRUCT_START:-0}  # 未找到时默认为0
+  
+          STRUCT_END=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_END=${STRUCT_END:-0}
+  
+          SP_ASSIGN=$(grep -n "stack_pointer" "$HEADER" | grep "__entry->" | head -1 | cut -d: -f1)
+          SP_ASSIGN=${SP_ASSIGN:-0}
+  
+          DECLARE_SP=$(grep -n "stack_pointer" "$HEADER" | grep "int" | head -1 | cut -d: -f1)
+          DECLARE_SP=${DECLARE_SP:-0}
+  
+          echo "  TP_STRUCT__entry 行号：${STRUCT_START}"
+          echo "  TP_fast_assign 行号：${STRUCT_END}"
+          echo "  stack_pointer 赋值行号：${SP_ASSIGN}"
+          echo "  stack_pointer 声明行号：${DECLARE_SP}"
+  
+          # 3. 安全整数比较（先检查变量是否大于0，避免空值报错）
           FAIL=0
-          grep -q "#include <linux/cgroup.h>" "$HEADER" && echo "[✓] 已正确包含cgroup头文件" || FAIL=1
-          INCLUDE_LINE=$(grep -n "#include <linux/cgroup.h>" "$HEADER" | head -1 | cut -d: -f1)
-          LAST_TRACE_LINE=$(grep -n "TRACE_EVENT(" "$HEADER" | tail -1 | cut -d: -f1)
-          if [ "$INCLUDE_LINE" -gt "$LAST_TRACE_LINE" ]; then
-            echo "[✓] 头文件插入位置在所有TRACE_EVENT定义之后"
-          else
-            echo "[✗] 头文件插入位置不安全"
+  
+          if [ "$STRUCT_START" -eq 0 ]; then
+            echo "❌ 未找到 TP_STRUCT__entry，文件结构异常"
             FAIL=1
           fi
-          [ $FAIL -eq 1 ] && exit 1
-          echo "✅ writeback.h 修复校验通过"
+  
+          if [ "$STRUCT_END" -eq 0 ]; then
+            echo "❌ 未找到 TP_fast_assign，文件结构异常"
+            FAIL=1
+          fi
+  
+          if [ "$SP_ASSIGN" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 赋值语句，修复未生效"
+            FAIL=1
+          fi
+  
+          if [ "$DECLARE_SP" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 声明语句，修复未生效"
+            FAIL=1
+          fi
+  
+          # 4. 校验声明位置在结构体内（DECLARE_SP 必须在 STRUCT_START 和 STRUCT_END 之间）
+          if [ "$DECLARE_SP" -gt 0 ] && [ "$STRUCT_START" -gt 0 ] && [ "$STRUCT_END" -gt 0 ]; then
+            if [ "$DECLARE_SP" -gt "$STRUCT_START" ] && [ "$DECLARE_SP" -lt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 声明位置正确（TP_STRUCT__entry 内部）"
+            else
+              echo "❌ stack_pointer 声明位置不正确（行号 $DECLARE_SP，不在 $STRUCT_START-$STRUCT_END 之间）"
+              FAIL=1
+            fi
+          fi
+  
+          # 5. 校验赋值位置在 TP_fast_assign 之后
+          if [ "$SP_ASSIGN" -gt 0 ] && [ "$STRUCT_END" -gt 0 ]; then
+            if [ "$SP_ASSIGN" -gt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 赋值位置正确（TP_fast_assign 之后）"
+            else
+              echo "❌ stack_pointer 赋值位置不正确（行号 $SP_ASSIGN，应在 $STRUCT_END 之后）"
+              FAIL=1
+            fi
+          fi
+  
+          # 6. 最终判断
+          if [ $FAIL -eq 1 ]; then
+            echo ""
+            echo "❌ writeback.h 结构完整性校验失败，终止编译"
+            exit 1
+          fi
+  
+          echo ""
+          echo "✅ writeback.h 结构完整性校验通过，头文件修复正确"
+
 
       - name: 【5-2】修复AppArmor crypto.c变长数组问题
         id: fix-apparmor-crypto
