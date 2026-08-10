@@ -543,7 +543,7 @@ jobs:
 
   
 
-      - name: 【5-0】writeback.h 插入 stack_pointer 字段声明与赋值（修复版）
+      - name: 【5-0】writeback.h 插入 stack_pointer 字段（精确行号版）
         id: writeback-stack-pointer-insert
         run: |
           HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
@@ -555,44 +555,41 @@ jobs:
             exit 1
           fi
   
-          # ===== 插入声明 =====
-          if grep -q "__field.*stack_pointer" "$HEADER" 2>/dev/null; then
-            echo "[✓] stack_pointer 声明已存在，跳过插入"
-          else
-            echo "正在 TP_STRUCT__entry 结构体中插入 stack_pointer 声明..."
-            # 方案1：以 writeback_index 为锚点，插入到它之后
-            if grep -q "__field.*writeback_index" "$HEADER"; then
-              sed -i '/__field.*writeback_index/a\\t\t__field(int,\tstack_pointer\t)' "$HEADER"
-              echo "[✓] stack_pointer 声明已插入（writeback_index 之后）"
-            else
-              # 方案2：插入到 TP_STRUCT__entry 之后（注意：用 a\ 而不是 i\）
-              sed -i '/TP_STRUCT__entry/a\\t\t__field(int,\tstack_pointer\t)' "$HEADER"
-              echo "[✓] stack_pointer 声明已插入（TP_STRUCT__entry 之后）"
-            fi
+          # 第一步：清理所有之前可能错误插入的 stack_pointer 行（幂等性保证）
+          if grep -q "stack_pointer" "$HEADER" 2>/dev/null; then
+            echo "检测到旧的 stack_pointer 插入，正在清理..."
+            sed -i '/stack_pointer/d' "$HEADER"
+            echo "[✓] 已清理所有旧的 stack_pointer 行"
           fi
   
-          # ===== 插入赋值 =====
-          if grep -q "__entry->stack_pointer" "$HEADER" 2>/dev/null; then
-            echo "[✓] stack_pointer 赋值已存在，跳过插入"
-          else
-            echo "正在 TP_fast_assign 块中插入 stack_pointer 赋值..."
-            if grep -q "__entry->writeback_index" "$HEADER"; then
-              sed -i '/__entry->writeback_index/a\\t\t__entry->stack_pointer\t= 0;' "$HEADER"
-              echo "[✓] stack_pointer 赋值已插入（writeback_index 赋值之后）"
-            else
-              # 插入到 TP_fast_assign 之后
-              sed -i '/TP_fast_assign/a\\t\t__entry->stack_pointer\t= 0;' "$HEADER"
-              echo "[✓] stack_pointer 赋值已插入（TP_fast_assign 之后）"
-            fi
+          # 第二步：获取 TP_STRUCT__entry 的精确行号并插入声明
+          STRUCT_LINE=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
+          if [ -z "$STRUCT_LINE" ] || [ "$STRUCT_LINE" -eq 0 ]; then
+            echo "❌ 未找到 TP_STRUCT__entry"
+            exit 1
           fi
+          echo "TP_STRUCT__entry 位于第 ${STRUCT_LINE} 行"
+          sed -i "${STRUCT_LINE}a\\t\t__field(int,\tstack_pointer\t)" "$HEADER"
+          echo "[✓] stack_pointer 声明已插入到第 $((STRUCT_LINE + 1)) 行"
+  
+          # 第三步：重新获取 TP_fast_assign 的行号（声明插入后行号已偏移+1）
+          ASSIGN_LINE=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
+          if [ -z "$ASSIGN_LINE" ] || [ "$ASSIGN_LINE" -eq 0 ]; then
+            echo "❌ 未找到 TP_fast_assign"
+            exit 1
+          fi
+          echo "TP_fast_assign 位于第 ${ASSIGN_LINE} 行"
+          sed -i "${ASSIGN_LINE}a\\t\t__entry->stack_pointer\t= 0;" "$HEADER"
+          echo "[✓] stack_pointer 赋值已插入到第 $((ASSIGN_LINE + 1)) 行"
   
           echo "✅ writeback.h stack_pointer 字段插入完成"
   
           # 打印关键区域供确认
           echo ""
           echo "--- 修改后的关键区域预览 ---"
-          grep -n -A2 -B2 "stack_pointer" "$HEADER" || echo "（未找到 stack_pointer 相关行）"
+          grep -n -A1 -B1 "stack_pointer" "$HEADER"
           echo "--- 预览结束 ---"
+
   
   
 
