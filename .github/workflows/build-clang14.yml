@@ -55,7 +55,7 @@ jobs:
         id: step2
         run: |
           sudo apt-get update
-          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
 
@@ -1552,6 +1552,24 @@ jobs:
           echo "[✓] 已预先启用NF_TABLES_INET选项，彻底消除新增交互式配置弹窗的触发源"
           # 第三步：全量自动同步所有配置，yes命令自动应答所有回车选择，全程非交互式无任何弹窗
           yes "" | make O=out ARCH=arm64 olddefconfig
+          
+          # 全量兜底补回被olddefconfig重置的Docker核心配置
+          DEFCONFIG=out/.config
+          CONFIG_MISS_ITEMS=(
+            "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
+            "CONFIG_CGROUP_HUGETLB=y"
+            "CONFIG_NFT_FIB=y"
+            "CONFIG_NFT_FIB_IPV4=y"
+            "CONFIG_NFT_FIB_IPV6=y"
+            "CONFIG_ZFS=y"
+          )
+          for fix_item in "${CONFIG_MISS_ITEMS[@]}"; do
+            sed -i "s|^# ${fix_item%%=*} is not set|${fix_item}|" out/.config
+            grep -q "^${fix_item}$" out/.config || echo "$fix_item" >> out/.config
+          done
+          chmod 444 out/.config
+          echo "[✓] 6项被重置的Docker核心配置已补回并上锁"
+
           echo "[✓] 全量非交互式olddefconfig同步完成，所有新配置项自动适配完毕"
     
           # -------------------------- 第一层：清理历史遗留规则 --------------------------
@@ -1577,6 +1595,47 @@ jobs:
           echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
           echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
           echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
+
+
+          FAIL=0
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=int-conversion' Makefile; then
+            echo "[✓] 第一层int-conversion错误屏蔽规则已生效"
+          else
+            echo "[✗] 第一层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-int-conversion' Makefile; then
+            echo "[✓] 第二层int-conversion告警关闭规则已生效"
+          else
+            echo "[✗] 第二层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=parentheses-equality' Makefile; then
+            echo "[✓] 第三层parentheses-equality错误屏蔽规则已生效"
+          else
+            echo "[✗] 第三层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-parentheses-equality' Makefile; then
+            echo "[✓] 第四层parentheses-equality告警关闭规则已生效"
+          else
+            echo "[✗] 第四层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration' Makefile; then
+            echo "[✓] 第五层implicit-function-declaration错误屏蔽规则已生效"
+          else
+            echo "[✗] 第五层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q -- 'KBUILD_CFLAGS   += -Wno-implicit-function-declaration' Makefile; then
+            echo "[✓] 第六层implicit-function-declaration告警关闭规则已生效"
+          else
+            echo "[✗] 第六层规则写入失败，终止构建"
+            FAIL=1
+          fi
+
+
     
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
