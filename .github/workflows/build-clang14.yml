@@ -1634,6 +1634,89 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=/usr/bin/arm-linux-gnueabi-
           echo "[✓] 全量编译环境变量初始化完成"
+
+
+
+
+          # -------------------------- 新增：编译前一刻全维度最终校验 --------------------------
+          echo ""
+          echo "=== 编译前一刻全维度最终校验 ==="
+          PRE_CHECK_FAIL=0
+          FINAL_DEFCONFIG=out/.config
+
+          # 校验1：最核心的Docker/LXC必选配置10项全部确认生效
+          echo "[1/4] 校验Docker/LXC核心必选配置"
+          FINAL_CRITICAL_ITEMS=(
+            "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
+            "CONFIG_CGROUP_HUGETLB=y"
+            "CONFIG_CGROUP_DEVICE=y"
+            "CONFIG_NFT_FIB=y"
+            "CONFIG_NFT_FIB_IPV4=y"
+            "CONFIG_NFT_FIB_IPV6=y"
+            "CONFIG_NF_TABLES=y"
+            "CONFIG_OVERLAY_FS=y"
+            "CONFIG_ZFS=y"
+            "CONFIG_MODULES=y"
+          )
+          for check_item in "${FINAL_CRITICAL_ITEMS[@]}"; do
+            if grep -q "^${check_item}$" "$FINAL_DEFCONFIG" 2>/dev/null; then
+              echo "  [✓] ${check_item} 已确认生效"
+            else
+              echo "  [✗] ${check_item} 配置缺失，编译后功能不完整"
+              PRE_CHECK_FAIL=1
+            fi
+          done
+
+          # 校验2：.config文件权限验证，确认之前的只读锁定没有异常
+          echo "[2/4] 校验.config文件权限有效性"
+          if [ -f "$FINAL_DEFCONFIG" ] && [ -s "$FINAL_DEFCONFIG" ]; then
+            echo "  [✓] .config文件存在，总配置行数：$(wc -l < "$FINAL_DEFCONFIG")"
+            chmod 644 "$FINAL_DEFCONFIG" 2>/dev/null || true
+            echo "  [✓] 已临时恢复.config可写权限，避免make读取失败"
+          else
+            echo "  [✗] .config文件不存在或为空，无法启动编译"
+            PRE_CHECK_FAIL=1
+          fi
+
+          # 校验3：编译依赖全量有效性验证
+          echo "[3/4] 校验Clang编译依赖完整性"
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          BUILD_DEPS=("clang" "ld.lld" "llvm-ar" "make" "bison" "flex" "aarch64-linux-gnu-gcc")
+          for dep_item in "${BUILD_DEPS[@]}"; do
+            if command -v "$dep_item" >/dev/null 2>&1; then
+              echo "  [✓] $dep_item 路径可正常访问"
+            else
+              echo "  [✗] 缺失编译依赖 $dep_item"
+              PRE_CHECK_FAIL=1
+            fi
+          done
+
+          # 校验4：Werror六层豁免规则验证
+          echo "[4/4] 校验Makefile豁免规则有效性"
+          MAKEFILE=./Makefile
+          EXEMPT_ITEMS=("-Wno-error=int-conversion" "-Wno-int-conversion" "-Wno-error=parentheses-equality" "-Wno-parentheses-equality" "-Wno-error=implicit-function-declaration" "-Wno-implicit-function-declaration")
+          for exempt_item in "${EXEMPT_ITEMS[@]}"; do
+            if grep -q "$exempt_item" "$MAKEFILE"; then
+              echo "  [✓] 豁免规则 $exempt_item 已正确写入Makefile"
+            else
+              echo "  [✗] 豁免规则 $exempt_item 缺失，编译时会升级为致命错误"
+              PRE_CHECK_FAIL=1
+            fi
+          done
+
+          # 校验结果判定
+          if [ $PRE_CHECK_FAIL -eq 1 ]; then
+            echo ""
+            echo "❌ 编译前预校验未通过，存在严重错误，终止构建避免浪费资源"
+            exit 1
+          fi
+          echo ""
+          echo "✅ 编译前一刻全维度校验100%全部通过，启动全量内核编译"
+
+
+
+
+
     
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
