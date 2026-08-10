@@ -771,15 +771,16 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           echo "正在扫描所有包含 current_stack_pointer 的源文件..."
-  
+      
           find . -type f $ -name "*.c" -o -name "*.h" $ \
             ! -path "*/arch/arm64/include/asm/stack_pointer.h" \
             -exec grep -l "current_stack_pointer" {} \; | while read f; do
               echo "  适配: $f"
               sed -i '/current_stack_pointer()/!s/current_stack_pointer/current_stack_pointer()/g' "$f"
           done
-  
+      
           echo "[✓] 所有调用点已适配为函数调用形式"
+
 
 
       - name: 【5-5校验】调用点适配完整性校验
