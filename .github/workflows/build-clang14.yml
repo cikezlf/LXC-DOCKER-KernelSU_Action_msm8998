@@ -547,6 +547,149 @@ jobs:
           cp include/trace/events/writeback.h include/trace/events/writeback.h.bak
           sed -i '/^#undef TRACE_INCLUDE_PATH/a #include <linux/cgroup.h>' include/trace/events/writeback.h
           echo "[✓] writeback.h 头文件修复完成"
+
+  
+      # ==================== 模块五：KernelSU writeback.h 兼容修复 ====================
+      - name: 【5-0】writeback.h 插入 stack_pointer 字段声明与赋值
+        id: writeback-stack-pointer-insert
+        run: |
+          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
+  
+          echo "==================== writeback.h stack_pointer 字段插入 ===================="
+  
+          # 检查文件是否存在
+          if [ ! -f "$HEADER" ]; then
+            echo "❌ writeback.h 文件不存在：$HEADER"
+            exit 1
+          fi
+  
+          # 检查是否已经插入过（幂等性保护）
+          if grep -q "__field(int, stack_pointer)" "$HEADER" 2>/dev/null; then
+            echo "[✓] stack_pointer 声明已存在，跳过插入"
+          else
+            echo "正在 TP_STRUCT__entry 结构体中插入 stack_pointer 声明..."
+            # 在 TP_STRUCT__entry 块内找到 __field(int, writeback_index) 这行，在其后插入
+            if grep -q "__field(int, writeback_index)" "$HEADER"; then
+              sed -i '/__field(int, writeback_index)/a\\t\t__field(int,\tstack_pointer\t)' "$HEADER"
+              echo "[✓] stack_pointer 声明已插入（writeback_index 之后）"
+            else
+              # 备选方案：直接在 TP_STRUCT__entry 下一行插入
+              sed -i '/TP_STRUCT__entry/i\\t\t__field(int,\tstack_pointer\t)' "$HEADER"
+              echo "[✓] stack_pointer 声明已插入（TP_STRUCT__entry 之后）"
+            fi
+          fi
+  
+          # 检查赋值是否已存在
+          if grep -q "__entry->stack_pointer" "$HEADER" 2>/dev/null; then
+            echo "[✓] stack_pointer 赋值已存在，跳过插入"
+          else
+            echo "正在 TP_fast_assign 块中插入 stack_pointer 赋值..."
+            # 在 TP_fast_assign 块内找到任意赋值语句后插入
+            if grep -q "__entry->writeback_index" "$HEADER"; then
+              sed -i '/__entry->writeback_index/a\\t\t__entry->stack_pointer\t= 0;' "$HEADER"
+              echo "[✓] stack_pointer 赋值已插入（writeback_index 赋值之后）"
+            else
+              # 备选：直接在 TP_fast_assign 下一行插入
+              sed -i '/TP_fast_assign/a\\t\t__entry->stack_pointer\t= 0;' "$HEADER"
+              echo "[✓] stack_pointer 赋值已插入（TP_fast_assign 之后）"
+            fi
+          fi
+  
+          echo "✅ writeback.h stack_pointer 字段插入完成"
+  
+          # 打印修改后的关键区域供人工确认
+          echo ""
+          echo "--- 修改后的关键区域预览 ---"
+          grep -n -A2 -B2 "stack_pointer" "$HEADER" || echo "（未找到 stack_pointer 相关行，请检查 sed 命令）"
+          echo "--- 预览结束 ---"
+  
+      - name: 【5-1】writeback.h 结构完整性校验
+        id: writeback-header-check
+        run: |
+          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
+  
+          echo "==================== writeback.h 结构完整性校验 ===================="
+  
+          # 文件存在性检查
+          if [ ! -f "$HEADER" ]; then
+            echo "❌ writeback.h 文件不存在：$HEADER"
+            exit 1
+          fi
+          echo "[✓] 文件存在：$HEADER"
+  
+          # 获取关键行号（默认值 0 兜底，避免空变量比较报错）
+          STRUCT_START=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_START=${STRUCT_START:-0}
+  
+          STRUCT_END=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_END=${STRUCT_END:-0}
+  
+          # 搜索 stack_pointer 声明（__field 形式）
+          SP_DECLARE=$(grep -n "__field.*stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
+          SP_DECLARE=${SP_DECLARE:-0}
+  
+          # 搜索 stack_pointer 赋值（__entry-> 形式）
+          SP_ASSIGN=$(grep -n "__entry->stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
+          SP_ASSIGN=${SP_ASSIGN:-0}
+  
+          echo "  TP_STRUCT__entry 行号：${STRUCT_START}"
+          echo "  TP_fast_assign 行号：${STRUCT_END}"
+          echo "  stack_pointer 声明行号：${SP_DECLARE}"
+          echo "  stack_pointer 赋值行号：${SP_ASSIGN}"
+  
+          FAIL=0
+  
+          # 校验 TP_STRUCT__entry 存在
+          if [ "$STRUCT_START" -eq 0 ]; then
+            echo "❌ 未找到 TP_STRUCT__entry，文件结构异常"
+            FAIL=1
+          fi
+  
+          # 校验 TP_fast_assign 存在
+          if [ "$STRUCT_END" -eq 0 ]; then
+            echo "❌ 未找到 TP_fast_assign，文件结构异常"
+            FAIL=1
+          fi
+  
+          # 校验 stack_pointer 声明存在
+          if [ "$SP_DECLARE" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 声明，插入步骤可能失败"
+            FAIL=1
+          else
+            # 声明必须在 TP_STRUCT__entry 和 TP_fast_assign 之间
+            if [ "$SP_DECLARE" -gt "$STRUCT_START" ] && [ "$SP_DECLARE" -lt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 声明位置正确（TP_STRUCT__entry 内部）"
+            else
+              echo "❌ stack_pointer 声明位置不正确（行号 $SP_DECLARE，不在 $STRUCT_START-$STRUCT_END 之间）"
+              FAIL=1
+            fi
+          fi
+  
+          # 校验 stack_pointer 赋值存在
+          if [ "$SP_ASSIGN" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 赋值，插入步骤可能失败"
+            FAIL=1
+          else
+            # 赋值必须在 TP_fast_assign 之后
+            if [ "$SP_ASSIGN" -gt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 赋值位置正确（TP_fast_assign 之后）"
+            else
+              echo "❌ stack_pointer 赋值位置不正确（行号 $SP_ASSIGN，应在 $STRUCT_END 之后）"
+              FAIL=1
+            fi
+          fi
+  
+          if [ $FAIL -eq 1 ]; then
+            echo ""
+            echo "❌ writeback.h 结构完整性校验失败，终止编译"
+            echo "请检查 writeback.h 原始内容，确认 TP_STRUCT__entry 和 TP_fast_assign 块内字段名称"
+            exit 1
+          fi
+  
+          echo ""
+          echo "✅ writeback.h 结构完整性校验通过"
+  
+
   
       - name: 【5-1】writeback.h结构完整性校验（修复空变量比较）
         id: writeback-header-check
