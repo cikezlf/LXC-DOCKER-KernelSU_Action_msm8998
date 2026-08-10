@@ -1755,13 +1755,14 @@ jobs:
           MAKEFILE=./Makefile
           EXEMPT_ITEMS=("-Wno-error=int-conversion" "-Wno-int-conversion" "-Wno-error=parentheses-equality" "-Wno-parentheses-equality" "-Wno-error=implicit-function-declaration" "-Wno-implicit-function-declaration")
           for exempt_item in "${EXEMPT_ITEMS[@]}"; do
-            if grep -q "$exempt_item" "$MAKEFILE"; then
+            if grep -q -- "$exempt_item" "$MAKEFILE"; then
               echo "  [✓] 豁免规则 $exempt_item 已正确写入Makefile"
             else
               echo "  [✗] 豁免规则 $exempt_item 缺失，编译时会升级为致命错误"
               PRE_CHECK_FAIL=1
             fi
           done
+
 
           # 校验结果判定
           if [ $PRE_CHECK_FAIL -eq 1 ]; then
