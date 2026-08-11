@@ -1699,12 +1699,25 @@ jobs:
           echo "LD_LIBRARY_PATH=${CLANG_DIR}/lib:${CLANG_DIR}/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "[✓] Clang编译环境变量已设置"
 
-      - name: 【7-2】执行内核编译（使用Clang14 + LLD，无任何弹窗卡死）
+
+
+
+      - name: 【7-2】执行内核编译（使用Clang14 + LLD，无任何弹窗卡死 + 干净性校验修复）
         id: build-kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CLANG_DIR=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d
-          # 强制禁用silentoldconfig，彻底阻断交互式逻辑
+          # 第一步：全量清理.config重复行，彻底消除所有override覆盖警告
+          DEFCONFIG=out/.config
+          awk -i inplace '!seen[$1]++' "$DEFCONFIG"
+          echo "[✓] 重复配置行已清理，消除所有override警告"
+          # 第二步：执行mrproper清理源码根目录所有残留旧配置文件，通过Kbuild干净性校验
+          make O=out ARCH=arm64 mrproper
+          echo "[✓] 内核源码残留文件已完全清理，通过干净性校验"
+          # 第三步：重新生成一次配置，确保配置状态完全同步
+          make O=out ARCH=arm64 olddefconfig
+          echo "[✓] 配置状态同步完成"
+          # 第四步：强制禁用silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
           make O=out ARCH=arm64 \
             CC=${CLANG_DIR}/bin/clang \
