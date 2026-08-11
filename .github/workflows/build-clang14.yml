@@ -1707,17 +1707,23 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CLANG_DIR=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d
-          # 第一步：全量清理.config重复行，彻底消除所有override覆盖警告
+      
+          # 第一步：全量清理 out/.config 重复行，彻底消除所有 override 覆盖警告
           DEFCONFIG=out/.config
           awk -i inplace '!seen[$1]++' "$DEFCONFIG"
-          echo "[✓] 重复配置行已清理，消除所有override警告"
-          # 第二步：执行mrproper清理源码根目录所有残留旧配置文件，通过Kbuild干净性校验
-          make O=out ARCH=arm64 mrproper
-          echo "[✓] 内核源码残留文件已完全清理，通过干净性校验"
-          # 第三步：重新生成一次配置，确保配置状态完全同步
+          echo "[✓] 重复配置行已清理，消除所有 override 警告"
+      
+          # 第二步：手动清理源码根目录残留旧文件，绕过 KernelSU Kbuild 的 clean 钩子报错
+          # 仅删除导致 ".. is not clean" 的生成文件，不触发 drivers/kernelsu 的 clean 目标
+          rm -rf include/config include/generated arch/arm64/include/generated
+          rm -f .config .config.old Module.symvers tags TAGS
+          echo "[✓] 内核源码根目录残留文件已手动清理，通过干净性校验"
+      
+          # 第三步：重新同步配置状态，确保 out/.config 与 Kconfig 完全对齐
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] 配置状态同步完成"
-          # 第四步：强制禁用silentoldconfig，彻底阻断交互式弹窗逻辑
+      
+          # 第四步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
           make O=out ARCH=arm64 \
             CC=${CLANG_DIR}/bin/clang \
