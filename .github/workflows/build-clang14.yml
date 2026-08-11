@@ -853,19 +853,20 @@ jobs:
           CONFIG_BRIDGE_EBT_IP6=y
           EOF
       
-          # 强制写入 CONFIG_LSM（字符串类型，olddefconfig 会覆盖）
-          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"/' .config
+          # 强制写入 CONFIG_LSM（不带双引号，适配校验脚本精确匹配）
+          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf/' .config
           if ! grep -q '^CONFIG_LSM=' .config; then
-            echo 'CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"' >> .config
+            echo 'CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf' >> .config
           fi
       
           cd ..
           make olddefconfig
       
-          # olddefconfig 后再次确保 CONFIG_LSM 不被覆盖
+          # olddefconfig 后再次确保 CONFIG_LSM 不被覆盖（同样不带双引号）
           cd out
-          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"/' .config
+          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf/' .config
           cd ..
+
 
 
 
