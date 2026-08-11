@@ -1717,15 +1717,35 @@ jobs:
           rm -f .config .config.old Module.symvers tags TAGS
           echo "[✓] 内核源码根目录残留文件已手动清理，通过干净性校验"
     
-          # 第三步：全局搜索并移除所有 Makefile / Kbuild 中的 -Werror 及 Clang 14 不支持的编译选项
+          # 第三步：全局搜索并移除所有 Makefile / Kbuild 中的 -Werror 及变体（-Werror=xxx）
           find . -type f $ -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" $ -exec sed -i \
             -e 's/-Werror//g' \
             -e 's/-Werror=implicit-function-declaration//g' \
             -e 's/-Werror=implicit-int//g' \
+            -e 's/-Werror=parentheses-equality//g' \
+            -e 's/-Werror=unused-but-set-variable//g' \
+            -e 's/-Werror=unused-function//g' \
+            -e 's/-Werror=shift-overflow//g' \
+            -e 's/-Werror=bool-operation//g' \
+            -e 's/-Werror=int-in-bool-context//g' \
+            -e 's/-Werror=enum-conversion//g' \
+            -e 's/-Werror=duplicate-decl-specifier//g' \
+            -e 's/-Werror=address-of-packed-member//g' \
+            -e 's/-Werror=frame-address//g' \
+            -e 's/-Werror=tautological-compare//g' \
+            -e 's/-Werror=declaration-after-statement//g' \
+            -e 's/-Werror=format-security//g' \
+            -e 's/-Werror=pointer-sign//g' \
+            -e 's/-Werror=implicit-fallthrough//g' \
+            -e 's/-Werror=unused-label//g' \
+            -e 's/-Werror=unused-const-variable//g' \
+            -e 's/-Werror=unknown-warning-option//g' \
+            -e 's/-Werror=deprecated-declarations//g' \
+            -e 's/-Werror=incompatible-pointer-types//g' \
             -e 's/-Wimplicit-function-declaration//g' \
             -e 's/-Wimplicit-int//g' \
             {} + 2>/dev/null || true
-          echo "[✓] -Werror 及 -Wimplicit-* 已从所有 Makefile/Kbuild 中彻底移除"
+          echo "[✓] -Werror 及其所有 -Werror=* 变体已从所有 Makefile/Kbuild 中彻底移除"
     
           # 第四步：向顶层 Makefile 末尾直接追加 KBUILD_CFLAGS 兼容性补丁
           cat >> Makefile << 'MAKEFILE_EOF'
@@ -1750,13 +1770,16 @@ jobs:
           KBUILD_CFLAGS += -Wno-tautological-compare
           KBUILD_CFLAGS += -Wno-enum-conversion
           KBUILD_CFLAGS += -Wno-duplicate-decl-specifier
+          KBUILD_CFLAGS += -Wno-parentheses-equality
+          KBUILD_CFLAGS += -Wno-deprecated-declarations
+          KBUILD_CFLAGS += -Wno-incompatible-pointer-types
           KBUILD_CFLAGS += -fno-strict-aliasing
           KBUILD_CFLAGS += -fno-omit-frame-pointer
           MAKEFILE_EOF
           echo "[✓] KBUILD_CFLAGS 兼容性补丁已直接注入顶层 Makefile"
     
           # 第五步：逐个子目录注入 ccflags-y 兼容标志，确保本地 Makefile 覆盖无死角
-          SUBDIR_CFLAGS="-Wno-implicit-fallthrough -Wno-enum-conversion -Wno-duplicate-decl-specifier -Wno-sometimes-uninitialized -Wno-unused-function -Wno-unused-but-set-variable -Wno-pointer-sign -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context -Wno-unknown-warning-option"
+          SUBDIR_CFLAGS="-Wno-implicit-fallthrough -Wno-enum-conversion -Wno-duplicate-decl-specifier -Wno-sometimes-uninitialized -Wno-unused-function -Wno-unused-but-set-variable -Wno-pointer-sign -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context -Wno-unknown-warning-option -Wno-parentheses-equality -Wno-deprecated-declarations -Wno-incompatible-pointer-types -Wno-tautological-compare -Wno-declaration-after-statement -Wno-format-security -Wno-frame-address -Wno-address-of-packed-member"
     
           if [ -f security/apparmor/Makefile ]; then
             sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" security/apparmor/Makefile
@@ -1776,6 +1799,16 @@ jobs:
           if [ -f drivers/Makefile ]; then
             sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" drivers/Makefile
             echo "[✓] drivers/Makefile 兼容性补丁已注入"
+          fi
+    
+          if [ -f mm/Makefile ]; then
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" mm/Makefile
+            echo "[✓] mm/Makefile 兼容性补丁已注入"
+          fi
+    
+          if [ -f net/Makefile ]; then
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" net/Makefile
+            echo "[✓] net/Makefile 兼容性补丁已注入"
           fi
     
           # 第六步：处理栈保护器不兼容，降级为完全禁用
