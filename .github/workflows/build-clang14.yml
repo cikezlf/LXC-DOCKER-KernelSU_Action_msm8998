@@ -271,6 +271,8 @@ jobs:
           add_config "CONFIG_NF_CONNTRACK=y"
           add_config "CONFIG_NF_TABLES=y"
           add_config "CONFIG_NF_TABLES_IPV4=y"
+          add_config "CONFIG_NFT_CHAIN_ROUTE_IPV4=y"
+          add_config "CONFIG_NFT_DUP_IPV4=y"
           add_config "CONFIG_NF_TABLES_IPV6=y"
           add_config "CONFIG_NF_TABLES_INET=y"
           add_config "CONFIG_NFT_MASQ=y"
@@ -394,6 +396,8 @@ jobs:
             "CONFIG_NF_CONNTRACK=y"
             "CONFIG_NF_TABLES=y"
             "CONFIG_NF_TABLES_IPV4=y"
+            "CONFIG_NFT_CHAIN_ROUTE_IPV4=y"
+            "CONFIG_NFT_DUP_IPV4=y"
             "CONFIG_NF_TABLES_IPV6=y"
             "CONFIG_NF_TABLES_INET=y"
             "CONFIG_NFT_MASQ=y"
@@ -1003,6 +1007,8 @@ jobs:
             CONFIG_NF_CONNTRACK_LABELS=y \
             CONFIG_NF_TABLES=y \
             CONFIG_NF_TABLES_IPV4=y \
+            CONFIG_NFT_CHAIN_ROUTE_IPV4=y \
+            CONFIG_NFT_DUP_IPV4=y \
             CONFIG_NF_TABLES_IPV6=y \
             CONFIG_NF_TABLES_INET=y \
             CONFIG_NF_TABLES_NETDEV=y \
@@ -1336,6 +1342,8 @@ jobs:
             "CONFIG_NF_CONNTRACK_LABELS"
             "CONFIG_NF_TABLES"
             "CONFIG_NF_TABLES_IPV4"
+            "CONFIG_NFT_CHAIN_ROUTE_IPV4"
+            "CONFIG_NFT_DUP_IPV4"
             "CONFIG_NF_TABLES_IPV6"
             "CONFIG_NF_TABLES_INET"
             "CONFIG_NF_TABLES_NETDEV"
