@@ -1262,11 +1262,12 @@ jobs:
   
           # 所有关键配置的完整列表
           CRITICAL_CFGS=(
-            # ===== 1. 核心依赖与架构支持（4项）=====
+            # ===== 1. 核心依赖与架构支持（5项）=====
             "CONFIG_NAMESPACES"
             "CONFIG_CGROUPS"
             "CONFIG_SECCOMP"
             "CONFIG_SECCOMP_FILTER"
+            "CONFIG_DEVPTS_MULTIPLE_INSTANCES"
           
             # ===== 2. 全量命名空间（6项）=====
             "CONFIG_PID_NS"
@@ -1292,21 +1293,21 @@ jobs:
             "CONFIG_CGROUP_BPF"
             "CONFIG_CGROUP_MISC"
           
-            # ===== 4. 网络驱动全量支持（9项）=====
+            # ===== 4. 网络驱动全量支持（12项）=====
             "CONFIG_VETH"
             "CONFIG_BRIDGE"
             "CONFIG_BRIDGE_NETFILTER"
             "CONFIG_BRIDGE_VLAN_FILTERING"
             "CONFIG_MACVLAN"
             "CONFIG_IPVLAN"
+            "CONFIG_IPVLAN_L3S"
             "CONFIG_VXLAN"
             "CONFIG_GENEVE"
             "CONFIG_TAP"
             "CONFIG_MACVTAP"
-            "CONFIG_IPVLAN_L3S"
             "CONFIG_NET_IPIP"
           
-            # ===== 5. Netfilter 与 iptables/nftables 全量（22项）=====
+            # ===== 5. Netfilter 与 iptables/nftables 全量（34项）=====
             "CONFIG_NETFILTER"
             "CONFIG_NF_CONNTRACK"
             "CONFIG_NF_CONNTRACK_ZONES"
@@ -1345,7 +1346,7 @@ jobs:
             # ===== 6. IPv4/IPv6 协议栈全量（2项）=====
             "CONFIG_IPV6_MROUTE"
           
-            # ===== 7. 存储与文件系统全量（13项）=====
+            # ===== 7. 存储与文件系统全量（15项）=====
             "CONFIG_OVERLAY_FS"
             "CONFIG_OVERLAY_FS_REDIRECT_DIR"
             "CONFIG_OVERLAY_FS_REDIRECT_ALWAYS_FOLLOW"
@@ -1362,13 +1363,12 @@ jobs:
             "CONFIG_FUSE_FS"
             "CONFIG_AUTOFS4_FS"
           
-            # ===== 8. 容器安全机制全量（8项）=====
+            # ===== 8. 容器安全机制全量（6项）=====
             "CONFIG_SECURITY_APPARMOR"
             "CONFIG_DEFAULT_SECURITY_APPARMOR"
             "CONFIG_BPF_JIT_ALWAYS_ON"
             "CONFIG_BPF_UNPRIV_DEFAULT_OFF"
             "CONFIG_HAVE_EBPF_JIT"
-            "CONFIG_DEVPTS_MULTIPLE_INSTANCES"
           
             # ===== 9. 进程间通信与通用功能（2项）=====
             "CONFIG_SYSVIPC"
@@ -1400,6 +1400,7 @@ jobs:
             "CONFIG_BRIDGE_EBT_IP"
             "CONFIG_BRIDGE_EBT_IP6"
           )
+
 
   
           for cfg in "${CRITICAL_CFGS[@]}"; do
