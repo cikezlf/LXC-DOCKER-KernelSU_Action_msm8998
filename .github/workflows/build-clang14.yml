@@ -1701,7 +1701,6 @@ jobs:
 
 
 
-      
       - name: 【7-2】执行内核编译（使用Clang14 + LLD，无任何弹窗卡死 + 干净性校验修复）
         id: build-kernel
         run: |
@@ -1756,10 +1755,27 @@ jobs:
           MAKEFILE_EOF
           echo "[✓] KBUILD_CFLAGS 兼容性补丁已直接注入顶层 Makefile"
     
-          # 第五步：额外针对 security/apparmor 子目录的 Makefile 直接注入兼容标志
+          # 第五步：逐个子目录注入 ccflags-y 兼容标志，确保本地 Makefile 覆盖无死角
+          SUBDIR_CFLAGS="-Wno-implicit-fallthrough -Wno-enum-conversion -Wno-duplicate-decl-specifier -Wno-sometimes-uninitialized -Wno-unused-function -Wno-unused-but-set-variable -Wno-pointer-sign -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context -Wno-unknown-warning-option"
+    
           if [ -f security/apparmor/Makefile ]; then
-            sed -i '1i ccflags-y += -Wno-implicit-fallthrough -Wno-enum-conversion -Wno-duplicate-decl-specifier -Wno-sometimes-uninitialized -Wno-unused-function' security/apparmor/Makefile
-            echo "[✓] AppArmor 子目录 Makefile 兼容性补丁已注入"
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" security/apparmor/Makefile
+            echo "[✓] security/apparmor/Makefile 兼容性补丁已注入"
+          fi
+    
+          if [ -f fs/Makefile ]; then
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" fs/Makefile
+            echo "[✓] fs/Makefile 兼容性补丁已注入"
+          fi
+    
+          if [ -f kernel/Makefile ]; then
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" kernel/Makefile
+            echo "[✓] kernel/Makefile 兼容性补丁已注入"
+          fi
+    
+          if [ -f drivers/Makefile ]; then
+            sed -i "1i ccflags-y += ${SUBDIR_CFLAGS}" drivers/Makefile
+            echo "[✓] drivers/Makefile 兼容性补丁已注入"
           fi
     
           # 第六步：处理栈保护器不兼容，降级为完全禁用
@@ -1790,6 +1806,7 @@ jobs:
             LLVM_IAS=0 \
             -j$(nproc --all) 2>&1 | tee build.log
           echo "[✓] 内核编译流程完成，无任何交互式弹窗"
+
 
 
 
