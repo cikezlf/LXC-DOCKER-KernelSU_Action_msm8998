@@ -1714,7 +1714,6 @@ jobs:
           echo "[✓] 重复配置行已清理，消除所有 override 警告"
       
           # 第二步：手动清理源码根目录残留旧文件，绕过 KernelSU Kbuild 的 clean 钩子报错
-          # 仅删除导致 ".. is not clean" 的生成文件，不触发 drivers/kernelsu 的 clean 目标
           rm -rf include/config include/generated arch/arm64/include/generated
           rm -f .config .config.old Module.symvers tags TAGS
           echo "[✓] 内核源码根目录残留文件已手动清理，通过干净性校验"
@@ -1725,6 +1724,10 @@ jobs:
       
           # 第四步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
+      
+          # 第五步：Clang 14 编译旧内核兼容性修复
+          # 禁用集成汇编器，使用 GNU as 处理旧语法内联汇编
+          # 抑制新版本 Clang 引入的警告升级为错误
           make O=out ARCH=arm64 \
             CC=${CLANG_DIR}/bin/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -1736,8 +1739,11 @@ jobs:
             OBJCOPY=${CLANG_DIR}/bin/llvm-objcopy \
             OBJDUMP=${CLANG_DIR}/bin/llvm-objdump \
             STRIP=${CLANG_DIR}/bin/llvm-strip \
+            LLVM_IAS=0 \
+            CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized" \
             -j$(nproc --all) 2>&1 | tee build.log
           echo "[✓] 内核编译流程启动，无任何交互式弹窗"
+
 
 
       - name: 【7-3】编译结果快速校验
