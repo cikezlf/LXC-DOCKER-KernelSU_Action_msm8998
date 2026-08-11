@@ -1423,6 +1423,7 @@ jobs:
             "CONFIG_IP6_NF_MANGLE"
             "CONFIG_IP_SCTP"
             "CONFIG_BRIDGE_VLAN_FILTERING"
+            "CONFIG_CONFIG_NFT_REDIR_IPV4"
       
             # ===== 6. IPv4/IPv6协议栈全量（10项）=====
             "CONFIG_INET"
