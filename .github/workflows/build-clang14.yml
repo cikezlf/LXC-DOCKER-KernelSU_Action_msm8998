@@ -1718,17 +1718,23 @@ jobs:
           rm -f .config .config.old Module.symvers tags TAGS
           echo "[✓] 内核源码根目录残留文件已手动清理，通过干净性校验"
       
-          # 第三步：重新同步配置状态，确保 out/.config 与 Kconfig 完全对齐
+          # 第三步：强制移除旧内核 Makefile 中的 -Werror 标志，根除所有警告升级为错误
+          # 4.4 内核在顶层 Makefile 中硬编码了 -Werror，必须物理删除
+          sed -i 's/-Werror//g' Makefile
+          # 同时移除 arch/arm64 子 Makefile 中可能存在的 -Werror
+          sed -i 's/-Werror//g' arch/arm64/Makefile 2>/dev/null || true
+          echo "[✓] -Werror 已从 Makefile 中彻底移除"
+      
+          # 第四步：重新同步配置状态，确保 out/.config 与 Kconfig 完全对齐
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] 配置状态同步完成"
       
-          # 第四步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
+          # 第五步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
       
-          # 第五步：Clang 14 编译旧内核全量兼容性修复
-          # - LLVM_IAS=0：禁用集成汇编器，使用 GNU as 处理旧语法内联汇编
-          # - -Wno-error：降级所有警告为非致命，避免 Clang 14 新警告中断编译
-          # - -Wno-*：逐一抑制旧内核常见的不兼容警告
+          # 第六步：Clang 14 编译 4.4 内核全量兼容性修复
+          # LLVM_IAS=0：禁用集成汇编器，回退到 GNU as
+          # KCFLAGS：追加到所有编译单元的编译参数，确保覆盖范围无死角
           make O=out ARCH=arm64 \
             CC=${CLANG_DIR}/bin/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -1741,9 +1747,10 @@ jobs:
             OBJDUMP=${CLANG_DIR}/bin/llvm-objdump \
             STRIP=${CLANG_DIR}/bin/llvm-strip \
             LLVM_IAS=0 \
-            CFLAGS_KERNEL="-Wno-error -Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized -Wno-pointer-sign -Wno-declaration-after-statement -Wno-format-security -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context" \
+            KCFLAGS="-Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized -Wno-pointer-sign -Wno-declaration-after-statement -Wno-format-security -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context -Wno-unknown-warning-option -Wno-address-of-packed-member -Wno-frame-address -Wno-builtin-macro-redefined -Wno-tautological-compare -fno-strict-aliasing -fno-omit-frame-pointer" \
             -j$(nproc --all) 2>&1 | tee build.log
           echo "[✓] 内核编译流程启动，无任何交互式弹窗"
+
 
 
 
