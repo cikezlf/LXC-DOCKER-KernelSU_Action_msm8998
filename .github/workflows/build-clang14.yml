@@ -309,7 +309,7 @@ jobs:
           add_config "CONFIG_NF_LOG_ARP=y"
           add_config "CONFIG_NFT_CHAIN_NAT_IPV4=y"
           add_config "CONFIG_NFT_MASQ_IPV4=y"
-          add_config "CONFIG_NFT_REDIR_IPV4=y"
+
 
 
           echo "===== 5. 存储与文件系统全量支持 ====="
@@ -1037,7 +1037,6 @@ jobs:
             CONFIG_NF_NAT_IPV4=y \
             CONFIG_NF_NAT_MASQUERADE_IPV4=y \
             CONFIG_NFT_MASQ_IPV4=y \
-            CONFIG_NFT_REDIR_IPV4=y \
             CONFIG_NF_TABLES_BRIDGE=y \
             CONFIG_NFT_MASQ=y \
             CONFIG_NFT_NAT=y \
@@ -1076,7 +1075,6 @@ jobs:
             CONFIG_IP6_NF_TARGET_MASQUERADE=y \
             CONFIG_IP6_NF_MANGLE=y \
             CONFIG_IP_SCTP=y \
-            CONFIG_NFT_REDIR_IPV4=y \
             CONFIG_BRIDGE_VLAN_FILTERING=y; do
             TOTAL=$((TOTAL + 1))
             if grep -q "^${cfg}$" "$DEFCONFIG" 2>/dev/null; then
@@ -1382,7 +1380,6 @@ jobs:
             "CONFIG_NF_NAT_IPV4"
             "CONFIG_NF_NAT_MASQUERADE_IPV4"
             "CONFIG_NFT_MASQ_IPV4"
-            "CONFIG_NFT_REDIR_IPV4"
             "CONFIG_NF_TABLES_BRIDGE"
             "CONFIG_NFT_MASQ"
             "CONFIG_NFT_NAT"
