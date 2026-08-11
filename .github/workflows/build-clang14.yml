@@ -844,7 +844,6 @@ jobs:
           CONFIG_BPF_JIT_ALWAYS_ON=y
           CONFIG_BPF_UNPRIV_DEFAULT_OFF=y
           CONFIG_HAVE_EBPF_JIT=y
-          CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"
           CONFIG_ZFS_INLINE=y
           CONFIG_ZFS_LZ4=y
           CONFIG_BRIDGE_EBT_T_FILTER=y
@@ -853,8 +852,21 @@ jobs:
           CONFIG_BRIDGE_EBT_IP=y
           CONFIG_BRIDGE_EBT_IP6=y
           EOF
+      
+          # 强制写入 CONFIG_LSM（字符串类型，olddefconfig 会覆盖）
+          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"/' .config
+          if ! grep -q '^CONFIG_LSM=' .config; then
+            echo 'CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"' >> .config
+          fi
+      
           cd ..
           make olddefconfig
+      
+          # olddefconfig 后再次确保 CONFIG_LSM 不被覆盖
+          cd out
+          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"/' .config
+          cd ..
+
 
 
 
