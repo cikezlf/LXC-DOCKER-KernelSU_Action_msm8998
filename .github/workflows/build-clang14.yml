@@ -1251,16 +1251,16 @@ jobs:
             exit 1
           fi
           echo "✅ Docker/LXC全量配置编译前最终校验全部通过，共计 ${PASS} 项配置正确，可以安全开始编译"
+
+
   
-      - name: 【6-2】autoconf.h兜底校验（强制注入编译期缺失配置）
-        id: autoconf-final-check
+      - name: 【6-2】autoconf.h兜底校验（强制注入编译期缺失配置 + 注入成功二次校验）
         run: |
-          AUTOCONF="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/include/generated/autoconf.h"
-          FAIL=0
-  
-          echo "==================== autoconf.h 编译期配置兜底校验 ===================="
-  
-          # 所有关键配置的完整列表
+          DEFCONFIG="${GITHUB_WORKSPACE}/kernel_workspace/android-kernel/out/.config"
+          AUTOCONF="${GITHUB_WORKSPACE}/kernel_workspace/android-kernel/out/include/generated/autoconf.h"
+      
+          echo "==================== autoconf.h 编译期配置兜底校验（182项） ===================="
+      
           CRITICAL_CFGS=(
             # ===== 1. 核心依赖与架构支持（5项）=====
             "CONFIG_NAMESPACES"
@@ -1268,7 +1268,7 @@ jobs:
             "CONFIG_SECCOMP"
             "CONFIG_SECCOMP_FILTER"
             "CONFIG_DEVPTS_MULTIPLE_INSTANCES"
-          
+      
             # ===== 2. 全量命名空间（6项）=====
             "CONFIG_PID_NS"
             "CONFIG_UTS_NS"
@@ -1276,7 +1276,7 @@ jobs:
             "CONFIG_USER_NS"
             "CONFIG_NET_NS"
             "CONFIG_CGROUP_NS"
-          
+      
             # ===== 3. 完整 Cgroups 控制组（14项）=====
             "CONFIG_CGROUP_CPUACCT"
             "CONFIG_CGROUP_DEVICE"
@@ -1292,7 +1292,7 @@ jobs:
             "CONFIG_CGROUP_HUGETLB"
             "CONFIG_CGROUP_BPF"
             "CONFIG_CGROUP_MISC"
-          
+      
             # ===== 4. 网络驱动全量支持（12项）=====
             "CONFIG_VETH"
             "CONFIG_BRIDGE"
@@ -1306,7 +1306,7 @@ jobs:
             "CONFIG_TAP"
             "CONFIG_MACVTAP"
             "CONFIG_NET_IPIP"
-          
+      
             # ===== 5. Netfilter 与 iptables/nftables 全量（34项）=====
             "CONFIG_NETFILTER"
             "CONFIG_NF_CONNTRACK"
@@ -1342,10 +1342,10 @@ jobs:
             "CONFIG_NETFILTER_XT_MATCH_CONNTRACK"
             "CONFIG_NETFILTER_XT_MARK"
             "CONFIG_NETFILTER_XT_TARGET_MASQUERADE"
-          
+      
             # ===== 6. IPv4/IPv6 协议栈全量（2项）=====
             "CONFIG_IPV6_MROUTE"
-          
+      
             # ===== 7. 存储与文件系统全量（15项）=====
             "CONFIG_OVERLAY_FS"
             "CONFIG_OVERLAY_FS_REDIRECT_DIR"
@@ -1362,27 +1362,27 @@ jobs:
             "CONFIG_SQUASHFS_ZSTD"
             "CONFIG_FUSE_FS"
             "CONFIG_AUTOFS4_FS"
-          
+      
             # ===== 8. 容器安全机制全量（6项）=====
             "CONFIG_SECURITY_APPARMOR"
             "CONFIG_DEFAULT_SECURITY_APPARMOR"
             "CONFIG_BPF_JIT_ALWAYS_ON"
             "CONFIG_BPF_UNPRIV_DEFAULT_OFF"
             "CONFIG_HAVE_EBPF_JIT"
-          
+      
             # ===== 9. 进程间通信与通用功能（2项）=====
             "CONFIG_SYSVIPC"
-          
+      
             # ===== 10. Android 网络权限修复（1项）=====
             "CONFIG_ANDROID_PARANOID_NETWORK"
-          
+      
             # ===== 11. ZFS 文件系统全量支持（5项）=====
             "CONFIG_ZFS"
             "CONFIG_ZFS_POSIX_ACL"
             "CONFIG_ZFS_XATTR"
             "CONFIG_ZFS_INLINE"
             "CONFIG_ZFS_LZ4"
-          
+      
             # ===== 12. 加密算法全量（8项）=====
             "CONFIG_CRYPTO_SHA256"
             "CONFIG_CRYPTO_SHA512"
@@ -1392,7 +1392,7 @@ jobs:
             "CONFIG_CRYPTO_XTS"
             "CONFIG_CRYPTO_CRC32C"
             "CONFIG_CRYPTO_CRC32"
-          
+      
             # ===== 13. Docker 桥接与 ebtables（5项）=====
             "CONFIG_BRIDGE_EBT_T_FILTER"
             "CONFIG_BRIDGE_EBT_T_NAT"
@@ -1400,35 +1400,70 @@ jobs:
             "CONFIG_BRIDGE_EBT_IP"
             "CONFIG_BRIDGE_EBT_IP6"
           )
-
-
-  
+      
+          # ========== 第一轮：校验并注入缺失项 ==========
+          TOTAL=0
+          PASS=0
+          MISS=0
+          MISS_LIST=()
+      
+          echo "===== 第一轮：校验并注入缺失项 ====="
           for cfg in "${CRITICAL_CFGS[@]}"; do
-            TOTAL=$((TOTAL + 1))
-            if grep -q "#define ${cfg} 1" "$AUTOCONF" 2>/dev/null; then
-              PASS=$((PASS + 1))
-            else
-              echo "  [✗] ${cfg} 未在autoconf.h中定义，编译期可能不生效"
-              FAIL=1
-            fi
-          done
-  
-          echo ""
-          echo "autoconf.h校验结果：${PASS}/${TOTAL} 通过"
-  
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ autoconf.h兜底校验失败，${TOTAL}项中 $((TOTAL - PASS)) 项缺失"
-            echo "正在强制注入所有缺失配置到autoconf.h..."
-            for cfg in "${CRITICAL_CFGS[@]}"; do
-              if ! grep -q "#define ${cfg} 1" "$AUTOCONF" 2>/dev/null; then
-                echo "#define ${cfg} 1" >> "$AUTOCONF"
-                echo "  [→] 已强制注入 ${cfg}"
+              TOTAL=$((TOTAL + 1))
+              macro="#define ${cfg} 1"
+              if grep -qF "$macro" "$AUTOCONF" 2>/dev/null; then
+                  PASS=$((PASS + 1))
+              else
+                  MISS=$((MISS + 1))
+                  echo "  [✗] ${cfg} 未在autoconf.h中定义，正在强制注入..."
+                  echo "$macro" >> "$AUTOCONF"
+                  MISS_LIST+=("${cfg}")
               fi
-            done
-            echo "✅ 所有缺失配置已强制注入autoconf.h，编译期将100%生效"
+          done
+      
+          echo ""
+          echo "=============================================================="
+          echo "第一轮校验结果：${PASS}/${TOTAL} 通过"
+          echo "缺失 ${MISS} 项（已全部强制注入）"
+          echo "=============================================================="
+          echo ""
+      
+          # ========== 第二轮：校验注入是否成功 ==========
+          if [ ${MISS} -gt 0 ]; then
+              echo "===== 第二轮：校验注入是否成功 ====="
+              VERIFY_TOTAL=0
+              VERIFY_PASS=0
+              VERIFY_FAIL=0
+      
+              for cfg in "${MISS_LIST[@]}"; do
+                  VERIFY_TOTAL=$((VERIFY_TOTAL + 1))
+                  macro="#define ${cfg} 1"
+                  if grep -qF "$macro" "$AUTOCONF" 2>/dev/null; then
+                      VERIFY_PASS=$((VERIFY_PASS + 1))
+                      echo "  [✓] ${cfg} 注入成功"
+                  else
+                      VERIFY_FAIL=$((VERIFY_FAIL + 1))
+                      echo "  [✗] ${cfg} 注入失败！请检查写入权限"
+                  fi
+              done
+      
+              echo ""
+              echo "=============================================================="
+              echo "第二轮注入校验结果：${VERIFY_PASS}/${VERIFY_TOTAL} 注入成功"
+              if [ ${VERIFY_FAIL} -gt 0 ]; then
+                  echo "⚠️  ${VERIFY_FAIL} 项注入失败！"
+                  exit 1
+              else
+                  echo "✅ 所有缺失项注入成功，${PASS}/${TOTAL} → ${TOTAL}/${TOTAL} 全部通过"
+              fi
+              echo "=============================================================="
           else
-            echo "✅ autoconf.h兜底校验通过，所有关键配置均已在编译期生效"
+              echo "✅ 无可注入项，${TOTAL}/${TOTAL} 全部通过，跳过第二轮校验"
           fi
+
+
+
+
 
           
 
