@@ -467,6 +467,7 @@ jobs:
             "CONFIG_ZFS=y"
             "CONFIG_ZFS_POSIX_ACL=y"
             "CONFIG_ZFS_XATTR=y"
+            "CONFIG_NFT_REDIR_IPV4=y"
           )
           FAIL=0
           TOTAL=0
