@@ -805,6 +805,7 @@ jobs:
       - name: 追加 Docker/LXC 缺失内核配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
+          sudo chmod 666 .config
           cat >> .config << 'EOF'
           CONFIG_CGROUP_NS=y
           CONFIG_CGROUP_MISC=y
@@ -852,7 +853,9 @@ jobs:
           CONFIG_BRIDGE_EBT_IP=y
           CONFIG_BRIDGE_EBT_IP6=y
           EOF
+          cd ..
           make olddefconfig
+
 
 
 
