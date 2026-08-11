@@ -1728,33 +1728,33 @@ jobs:
             {} + 2>/dev/null || true
           echo "[✓] -Werror 及 -Wimplicit-* 已从所有 Makefile/Kbuild 中彻底移除"
     
-          # 第四步：在顶层 Makefile 的 include 指令之前注入 KBUILD_CFLAGS 补丁
-          # 使用 sed 在第一个 include 行前插入，确保不被后续的 Makefile 片段覆盖
-          sed -i '0,/^include /{/^include /i\
-          # Clang 14 兼容性补丁：抑制旧内核全部不兼容警告\
-          KBUILD_CFLAGS += -Wno-unused-but-set-variable\
-          KBUILD_CFLAGS += -Wno-unused-function\
-          KBUILD_CFLAGS += -Wno-unused-label\
-          KBUILD_CFLAGS += -Wno-unused-const-variable\
-          KBUILD_CFLAGS += -Wno-implicit-fallthrough\
-          KBUILD_CFLAGS += -Wno-sometimes-uninitialized\
-          KBUILD_CFLAGS += -Wno-pointer-sign\
-          KBUILD_CFLAGS += -Wno-declaration-after-statement\
-          KBUILD_CFLAGS += -Wno-format-security\
-          KBUILD_CFLAGS += -Wno-shift-overflow\
-          KBUILD_CFLAGS += -Wno-bool-operation\
-          KBUILD_CFLAGS += -Wno-int-in-bool-context\
-          KBUILD_CFLAGS += -Wno-unknown-warning-option\
-          KBUILD_CFLAGS += -Wno-address-of-packed-member\
-          KBUILD_CFLAGS += -Wno-frame-address\
-          KBUILD_CFLAGS += -Wno-builtin-macro-redefined\
-          KBUILD_CFLAGS += -Wno-tautological-compare\
-          KBUILD_CFLAGS += -Wno-enum-conversion\
-          KBUILD_CFLAGS += -Wno-duplicate-decl-specifier\
-          KBUILD_CFLAGS += -fno-strict-aliasing\
-          KBUILD_CFLAGS += -fno-omit-frame-pointer\
-          }' Makefile
-          echo "[✓] KBUILD_CFLAGS 兼容性补丁已注入 Makefile（位于 include 指令之前）"
+          # 第四步：向顶层 Makefile 末尾直接追加 KBUILD_CFLAGS 兼容性补丁
+          cat >> Makefile << 'MAKEFILE_EOF'
+    
+          # Clang 14 兼容性补丁：抑制旧内核全部不兼容警告
+          KBUILD_CFLAGS += -Wno-unused-but-set-variable
+          KBUILD_CFLAGS += -Wno-unused-function
+          KBUILD_CFLAGS += -Wno-unused-label
+          KBUILD_CFLAGS += -Wno-unused-const-variable
+          KBUILD_CFLAGS += -Wno-implicit-fallthrough
+          KBUILD_CFLAGS += -Wno-sometimes-uninitialized
+          KBUILD_CFLAGS += -Wno-pointer-sign
+          KBUILD_CFLAGS += -Wno-declaration-after-statement
+          KBUILD_CFLAGS += -Wno-format-security
+          KBUILD_CFLAGS += -Wno-shift-overflow
+          KBUILD_CFLAGS += -Wno-bool-operation
+          KBUILD_CFLAGS += -Wno-int-in-bool-context
+          KBUILD_CFLAGS += -Wno-unknown-warning-option
+          KBUILD_CFLAGS += -Wno-address-of-packed-member
+          KBUILD_CFLAGS += -Wno-frame-address
+          KBUILD_CFLAGS += -Wno-builtin-macro-redefined
+          KBUILD_CFLAGS += -Wno-tautological-compare
+          KBUILD_CFLAGS += -Wno-enum-conversion
+          KBUILD_CFLAGS += -Wno-duplicate-decl-specifier
+          KBUILD_CFLAGS += -fno-strict-aliasing
+          KBUILD_CFLAGS += -fno-omit-frame-pointer
+          MAKEFILE_EOF
+          echo "[✓] KBUILD_CFLAGS 兼容性补丁已直接注入顶层 Makefile"
     
           # 第五步：额外针对 security/apparmor 子目录的 Makefile 直接注入兼容标志
           if [ -f security/apparmor/Makefile ]; then
@@ -1775,7 +1775,7 @@ jobs:
           # 第八步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
     
-          # 第九步：执行编译（不再使用 KCFLAGS，避免 YAML 多行拼接截断）
+          # 第九步：执行编译
           make O=out ARCH=arm64 \
             CC="${CLANG_DIR}/bin/clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -1790,6 +1790,7 @@ jobs:
             LLVM_IAS=0 \
             -j$(nproc --all) 2>&1 | tee build.log
           echo "[✓] 内核编译流程完成，无任何交互式弹窗"
+
 
 
 
