@@ -309,6 +309,7 @@ jobs:
           add_config "CONFIG_NF_LOG_ARP=y"
           add_config "CONFIG_NFT_CHAIN_NAT_IPV4=y"
           add_config "CONFIG_NFT_MASQ_IPV4=y"
+          add_config "CONFIG_NFT_REDIR_IPV4=y"
 
 
 
@@ -839,6 +840,7 @@ jobs:
           CONFIG_NF_NAT_IPV4
           CONFIG_NAT_MASQUERADE_IPV4
           CONFIG_NAT_NFT_MASQ_IPV4
+          CONFIG_NFT_REDIR_IPV4
           CONFIG_NAT_NFT_REDIR_IPV4
           CONFIG_NF_TABLES_BRIDGE=y
           CONFIG_NFT_REDIR=y
@@ -1037,6 +1039,7 @@ jobs:
             CONFIG_NF_NAT_IPV4=y \
             CONFIG_NF_NAT_MASQUERADE_IPV4=y \
             CONFIG_NFT_MASQ_IPV4=y \
+             CONFIG_NFT_REDIR_IPV4=y \
             CONFIG_NF_TABLES_BRIDGE=y \
             CONFIG_NFT_MASQ=y \
             CONFIG_NFT_NAT=y \
@@ -1380,6 +1383,7 @@ jobs:
             "CONFIG_NF_NAT_IPV4"
             "CONFIG_NF_NAT_MASQUERADE_IPV4"
             "CONFIG_NFT_MASQ_IPV4"
+            "CONFIG_NFT_REDIR_IPV4"
             "CONFIG_NF_TABLES_BRIDGE"
             "CONFIG_NFT_MASQ"
             "CONFIG_NFT_NAT"
