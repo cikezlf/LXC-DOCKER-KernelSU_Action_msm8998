@@ -315,7 +315,9 @@ jobs:
           add_config "CONFIG_NFT_CHAIN_NAT_IPV4=y"
           add_config "CONFIG_NFT_MASQ_IPV4=y"
           add_config "CONFIG_NFT_REDIR_IPV4=y"
-
+          add_config "CONFIG_NFT_CHAIN_NAT_IPV6=y"
+          add_config "CONFIG_NFT_MASQ_IPV6=y"
+          add_config "CONFIG_NFT_REDIR_IPV6=y"
 
 
           echo "===== 5. 存储与文件系统全量支持 ====="
