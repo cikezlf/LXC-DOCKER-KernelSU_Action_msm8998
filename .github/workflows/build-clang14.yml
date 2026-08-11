@@ -856,6 +856,7 @@ jobs:
           CONFIG_NFT_REDIR_IPV4=y
           CONFIG_NF_TABLES_BRIDGE=y
           CONFIG_NFT_BRIDGE_REJECT=y
+          CONFIG_NF_LOG_BRIDGE=y
           CONFIG_NFT_REDIR=y
           CONFIG_NFT_COUNTER=y
           CONFIG_NFT_LOG=y
@@ -1058,6 +1059,7 @@ jobs:
             CONFIG_NFT_MASQ_IPV4=y \
             CONFIG_NF_TABLES_BRIDGE=y \
             CONFIG_NFT_BRIDGE_REJECT=y \
+            CONFIG_NF_LOG_BRIDGE=y \
             CONFIG_NFT_MASQ=y \
             CONFIG_NFT_NAT=y \
             CONFIG_NFT_REDIR=y \
@@ -1413,6 +1415,7 @@ jobs:
             "CONFIG_NFT_REDIR_IPV4"
             "CONFIG_NF_TABLES_BRIDGE"
             "CONFIG_NFT_BRIDGE_REJECT"
+            "CONFIG_NF_LOG_BRIDGE"
             "CONFIG_NFT_MASQ"
             "CONFIG_NFT_NAT"
             "CONFIG_NFT_REDIR"
