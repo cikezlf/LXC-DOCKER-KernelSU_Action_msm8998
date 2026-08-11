@@ -276,6 +276,11 @@ jobs:
           add_config "CONFIG_NFT_CHAIN_ROUTE_IPV4=y"
           add_config "CONFIG_NFT_DUP_IPV4=y"
           add_config "CONFIG_NF_TABLES_IPV6=y"
+          add_config "CONFIG_NFT_CHAIN_ROUTE_IPV6=y"
+          add_config "CONFIG_NFT_DUP_IPV6=y"
+          add_config "NFT_CHAIN_NAT_IPV6=y"
+          add_config "NFT_MASQ_IPV6=y"
+          add_config "NFT_REDIR_IPV6=y"
           add_config "CONFIG_NF_TABLES_INET=y"
           add_config "CONFIG_NFT_MASQ=y"
           add_config "CONFIG_NFT_NAT=y"
@@ -409,6 +414,11 @@ jobs:
             "CONFIG_NFT_CHAIN_ROUTE_IPV4=y"
             "CONFIG_NFT_DUP_IPV4=y"
             "CONFIG_NF_TABLES_IPV6=y"
+            "CONFIG_NFT_CHAIN_ROUTE_IPV6=y"
+            "CONFIG_NFT_DUP_IPV6=y"
+            "CONFIG_NFT_CHAIN_NAT_IPV6=y"
+            "CONFIG_NFT_MASQ_IPV6=y"
+            "CONFIG_NFT_REDIR_IPV6=y"
             "CONFIG_NF_TABLES_INET=y"
             "CONFIG_NFT_MASQ=y"
             "CONFIG_NFT_NAT=y"
@@ -1031,6 +1041,11 @@ jobs:
             CONFIG_NFT_CHAIN_ROUTE_IPV4=y \
             CONFIG_NFT_DUP_IPV4=y \
             CONFIG_NF_TABLES_IPV6=y \
+            CONFIG_NFT_CHAIN_ROUTE_IPV6 \
+            CONFIG_NFT_DUP_IPV6 \
+                      NFT_CHAIN_NAT_IPV6
+          NFT_MASQ_IPV6
+          NFT_REDIR_IPV6
             CONFIG_NF_TABLES_INET=y \
             CONFIG_NF_TABLES_NETDEV=y \
             CONFIG_NF_TABLES_ARP=y \
@@ -1374,6 +1389,11 @@ jobs:
             "CONFIG_NFT_CHAIN_ROUTE_IPV4"
             "CONFIG_NFT_DUP_IPV4"
             "CONFIG_NF_TABLES_IPV6"
+            "CONFIG_NFT_CHAIN_ROUTE_IPV6
+            "CONFIG_NFT_DUP_IPV6
+                      NFT_CHAIN_NAT_IPV6
+          NFT_MASQ_IPV6
+          NFT_REDIR_IPV6
             "CONFIG_NF_TABLES_INET"
             "CONFIG_NF_TABLES_NETDEV"
             "CONFIG_NF_TABLES_ARP"
