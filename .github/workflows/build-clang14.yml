@@ -144,271 +144,6 @@ jobs:
           fi
           echo "✅ Clang工具链完整性校验通过"
 
-
-
-
-
-      # ==================== 模块五：Clang兼容修复层 ====================
-      - name: 【5-0】writeback.h 插入 stack_pointer 字段（精确行号版）
-        id: writeback-stack-pointer-insert
-        run: |
-          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
-  
-          echo "==================== writeback.h stack_pointer 字段插入 ===================="
-  
-          if [ ! -f "$HEADER" ]; then
-            echo "❌ writeback.h 文件不存在：$HEADER"
-            exit 1
-          fi
-  
-          # 第一步：清理所有之前可能错误插入的 stack_pointer 行（幂等性保证）
-          if grep -q "stack_pointer" "$HEADER" 2>/dev/null; then
-            echo "检测到旧的 stack_pointer 插入，正在清理..."
-            sed -i '/stack_pointer/d' "$HEADER"
-            echo "[✓] 已清理所有旧的 stack_pointer 行"
-          fi
-  
-          # 第二步：获取 TP_STRUCT__entry 的精确行号并插入声明
-          STRUCT_LINE=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
-          if [ -z "$STRUCT_LINE" ] || [ "$STRUCT_LINE" -eq 0 ]; then
-            echo "❌ 未找到 TP_STRUCT__entry"
-            exit 1
-          fi
-          echo "TP_STRUCT__entry 位于第 ${STRUCT_LINE} 行"
-          sed -i "${STRUCT_LINE}a\\t\t__field(int,\tstack_pointer\t)" "$HEADER"
-          echo "[✓] stack_pointer 声明已插入到第 $((STRUCT_LINE + 1)) 行"
-  
-          # 第三步：重新获取 TP_fast_assign 的行号（声明插入后行号已偏移+1）
-          ASSIGN_LINE=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
-          if [ -z "$ASSIGN_LINE" ] || [ "$ASSIGN_LINE" -eq 0 ]; then
-            echo "❌ 未找到 TP_fast_assign"
-            exit 1
-          fi
-          echo "TP_fast_assign 位于第 ${ASSIGN_LINE} 行"
-          sed -i "${ASSIGN_LINE}a\\t\t__entry->stack_pointer\t= 0;" "$HEADER"
-          echo "[✓] stack_pointer 赋值已插入到第 $((ASSIGN_LINE + 1)) 行"
-  
-          echo "✅ writeback.h stack_pointer 字段插入完成"
-  
-          # 打印关键区域供确认
-          echo ""
-          echo "--- 修改后的关键区域预览 ---"
-          grep -n -A1 -B1 "stack_pointer" "$HEADER"
-          echo "--- 预览结束 ---"
-
-  
-  
-
-      - name: 【5-1】writeback.h 结构完整性校验
-        id: writeback-header-check
-        run: |
-          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
-  
-          echo "==================== writeback.h 结构完整性校验 ===================="
-  
-          # 文件存在性检查
-          if [ ! -f "$HEADER" ]; then
-            echo "❌ writeback.h 文件不存在：$HEADER"
-            exit 1
-          fi
-          echo "[✓] 文件存在：$HEADER"
-  
-          # 获取关键行号（默认值 0 兜底，避免空变量比较报错）
-          STRUCT_START=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
-          STRUCT_START=${STRUCT_START:-0}
-  
-          STRUCT_END=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
-          STRUCT_END=${STRUCT_END:-0}
-  
-          # 搜索 stack_pointer 声明（__field 形式）
-          SP_DECLARE=$(grep -n "__field.*stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
-          SP_DECLARE=${SP_DECLARE:-0}
-  
-          # 搜索 stack_pointer 赋值（__entry-> 形式）
-          SP_ASSIGN=$(grep -n "__entry->stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
-          SP_ASSIGN=${SP_ASSIGN:-0}
-  
-          echo "  TP_STRUCT__entry 行号：${STRUCT_START}"
-          echo "  TP_fast_assign 行号：${STRUCT_END}"
-          echo "  stack_pointer 声明行号：${SP_DECLARE}"
-          echo "  stack_pointer 赋值行号：${SP_ASSIGN}"
-  
-          FAIL=0
-  
-          # 校验 TP_STRUCT__entry 存在
-          if [ "$STRUCT_START" -eq 0 ]; then
-            echo "❌ 未找到 TP_STRUCT__entry，文件结构异常"
-            FAIL=1
-          fi
-  
-          # 校验 TP_fast_assign 存在
-          if [ "$STRUCT_END" -eq 0 ]; then
-            echo "❌ 未找到 TP_fast_assign，文件结构异常"
-            FAIL=1
-          fi
-  
-          # 校验 stack_pointer 声明存在
-          if [ "$SP_DECLARE" -eq 0 ]; then
-            echo "❌ 未找到 stack_pointer 声明，插入步骤可能失败"
-            FAIL=1
-          else
-            # 声明必须在 TP_STRUCT__entry 和 TP_fast_assign 之间
-            if [ "$SP_DECLARE" -gt "$STRUCT_START" ] && [ "$SP_DECLARE" -lt "$STRUCT_END" ]; then
-              echo "[✓] stack_pointer 声明位置正确（TP_STRUCT__entry 内部）"
-            else
-              echo "❌ stack_pointer 声明位置不正确（行号 $SP_DECLARE，不在 $STRUCT_START-$STRUCT_END 之间）"
-              FAIL=1
-            fi
-          fi
-  
-          # 校验 stack_pointer 赋值存在
-          if [ "$SP_ASSIGN" -eq 0 ]; then
-            echo "❌ 未找到 stack_pointer 赋值，插入步骤可能失败"
-            FAIL=1
-          else
-            # 赋值必须在 TP_fast_assign 之后
-            if [ "$SP_ASSIGN" -gt "$STRUCT_END" ]; then
-              echo "[✓] stack_pointer 赋值位置正确（TP_fast_assign 之后）"
-            else
-              echo "❌ stack_pointer 赋值位置不正确（行号 $SP_ASSIGN，应在 $STRUCT_END 之后）"
-              FAIL=1
-            fi
-          fi
-  
-          if [ $FAIL -eq 1 ]; then
-            echo ""
-            echo "❌ writeback.h 结构完整性校验失败，终止编译"
-            echo "请检查 writeback.h 原始内容，确认 TP_STRUCT__entry 和 TP_fast_assign 块内字段名称"
-            exit 1
-          fi
-  
-          echo ""
-          echo "✅ writeback.h 结构完整性校验通过"
-  
-
-
-
-      - name: 【5-2】修复AppArmor crypto.c变长数组问题
-        id: fix-apparmor-crypto
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
-          python3 << 'PYEOF'
-          content = open('security/apparmor/crypto.c', 'r').read()
-          func_name = 'int aa_calc_profile_hash'
-          idx = content.find(func_name)
-          brace_start = content.find('{', idx)
-          depth = 1
-          pos = brace_start + 1
-          while pos < len(content) and depth > 0:
-              if content[pos] == '{': depth += 1
-              elif content[pos] == '}': depth -= 1
-              pos += 1
-          new_func = '''int aa_calc_profile_hash(struct aa_profile *profile, u32 version, void *start, size_t len)
-          {
-              struct shash_desc *desc;
-              int error = -ENOMEM;
-              u32 le32_version = cpu_to_le32(version);
-              if (!apparmor_tfm) return 0;
-              profile->hash = kzalloc(apparmor_hash_size, GFP_KERNEL);
-              if (!profile->hash) goto fail;
-              desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
-              if (!desc) goto fail;
-              desc->tfm = apparmor_tfm;
-              desc->flags = 0;
-              error = crypto_shash_init(desc);
-              if (error) goto fail_desc;
-              error = crypto_shash_update(desc, (u8 *)&le32_version, 4);
-              if (error) goto fail_desc;
-              error = crypto_shash_update(desc, (u8 *)start, len);
-              if (error) goto fail_desc;
-              error = crypto_shash_final(desc, profile->hash);
-              if (error) goto fail_desc;
-              kfree(desc);
-              return 0;
-          fail_desc:
-              kfree(desc);
-          fail:
-              kfree(profile->hash);
-              profile->hash = NULL;
-              return error;
-          }'''
-          content = content[:idx] + new_func + content[pos:]
-          open('security/apparmor/crypto.c', 'w').write(content)
-          print("[✓] 变长数组修复完成")
-          PYEOF
-
-      - name: 【5-2校验】AppArmor crypto.c变长数组校验
-        run: |
-          CRYPTO_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/security/apparmor/crypto.c
-          grep -q "char ctx\[crypto_shash_descsize" "$CRYPTO_FILE" && echo "[✗] 变长数组未移除" && exit 1
-          echo "✅ 变长数组已移除，校验通过"
-
-      - name: 【5-3】修复stack_pointer.h全局寄存器变量不兼容问题
-        id: fix-stack-pointer
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp arch/arm64/include/asm/stack_pointer.h arch/arm64/include/asm/stack_pointer.h.bak
-          sed -i 's/register unsigned long current_stack_pointer asm ("sp");/static __always_inline unsigned long current_stack_pointer(void) { unsigned long sp; asm volatile("mov %0, sp" : "=r"(sp)); return sp; }/' arch/arm64/include/asm/stack_pointer.h
-          echo "[✓] 全局寄存器变量已替换为内联函数"
-
-      - name: 【5-3校验】stack_pointer.h修复校验
-        run: |
-          FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/stack_pointer.h
-          grep -q 'register unsigned long current_stack_pointer asm' "$FILE" && echo "[✗] 旧代码残留" && exit 1
-          echo "✅ 全局寄存器变量已完全移除，校验通过"
-
-      - name: 【5-4】回滚spinlock.h错误的通用寄存器约束，恢复原生I立即数兼容
-        id: fix-spinlock
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp arch/arm64/include/asm/spinlock.h arch/arm64/include/asm/spinlock.h.bak
-          sed -i 's/"r" (1 << TICKET_SHIFT)/"I" (1 << TICKET_SHIFT)/g' arch/arm64/include/asm/spinlock.h
-          echo "[✓] spinlock.h 原生I立即数约束已恢复"
-
-      - name: 【5-4校验】spinlock.h适配校验
-        run: |
-          SPINLOCK_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/spinlock.h
-          grep -q '"r" (1 << TICKET_SHIFT)' "$SPINLOCK_FILE" && echo "[✗] 通用寄存器约束残留" && exit 1
-          echo "✅ spinlock.h 适配校验通过，规避位宽不匹配汇编错误"
-
-
-
-      - name: 【5-5】批量适配 current_stack_pointer 为函数调用形式
-        id: adapt-stack-pointer-calls
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          echo "正在扫描所有包含 current_stack_pointer 的源文件..."
-      
-          grep -rl "current_stack_pointer" --include="*.c" --include="*.h" . \
-            | grep -v "arch/arm64/include/asm/stack_pointer.h" \
-            | while read f; do
-                echo "  适配: $f"
-                sed -i '/current_stack_pointer()/!s/current_stack_pointer/current_stack_pointer()/g' "$f"
-              done
-      
-          echo "[✓] 所有调用点已适配为函数调用形式"
-
-
-
-
-
-      - name: 【5-5校验】调用点适配完整性校验
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 检查是否还有未适配的变量引用（排除头文件定义本身）
-          RESIDUAL=$(grep -rn "current_stack_pointer" --include="*.c" --include="*.h" \
-            --exclude="stack_pointer.h" . | grep -v "current_stack_pointer()" | grep -v "static __always_inline" | wc -l)
-          if [ "$RESIDUAL" -gt 0 ]; then
-            echo "[✗] 仍有 ${RESIDUAL} 处未适配的调用点"
-            exit 1
-          fi
-          echo "✅ 所有调用点适配完成，校验通过"
-
-
-
-
-
       - name: 【3-3】拉取目标分支内核源码
         id: pull-kernel-src
         run: |
@@ -803,7 +538,266 @@ jobs:
           echo "#define CONFIG_NFT_FIB_IPV6 1" >> generated/autoconf.h
           echo "[✓] 核心配置已强制注入autoconf.h，从源头锁定生效"
 
+      # ==================== 模块五：Clang兼容修复层 ====================
 
+
+  
+
+      - name: 【5-0】writeback.h 插入 stack_pointer 字段（精确行号版）
+        id: writeback-stack-pointer-insert
+        run: |
+          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
+  
+          echo "==================== writeback.h stack_pointer 字段插入 ===================="
+  
+          if [ ! -f "$HEADER" ]; then
+            echo "❌ writeback.h 文件不存在：$HEADER"
+            exit 1
+          fi
+  
+          # 第一步：清理所有之前可能错误插入的 stack_pointer 行（幂等性保证）
+          if grep -q "stack_pointer" "$HEADER" 2>/dev/null; then
+            echo "检测到旧的 stack_pointer 插入，正在清理..."
+            sed -i '/stack_pointer/d' "$HEADER"
+            echo "[✓] 已清理所有旧的 stack_pointer 行"
+          fi
+  
+          # 第二步：获取 TP_STRUCT__entry 的精确行号并插入声明
+          STRUCT_LINE=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
+          if [ -z "$STRUCT_LINE" ] || [ "$STRUCT_LINE" -eq 0 ]; then
+            echo "❌ 未找到 TP_STRUCT__entry"
+            exit 1
+          fi
+          echo "TP_STRUCT__entry 位于第 ${STRUCT_LINE} 行"
+          sed -i "${STRUCT_LINE}a\\t\t__field(int,\tstack_pointer\t)" "$HEADER"
+          echo "[✓] stack_pointer 声明已插入到第 $((STRUCT_LINE + 1)) 行"
+  
+          # 第三步：重新获取 TP_fast_assign 的行号（声明插入后行号已偏移+1）
+          ASSIGN_LINE=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
+          if [ -z "$ASSIGN_LINE" ] || [ "$ASSIGN_LINE" -eq 0 ]; then
+            echo "❌ 未找到 TP_fast_assign"
+            exit 1
+          fi
+          echo "TP_fast_assign 位于第 ${ASSIGN_LINE} 行"
+          sed -i "${ASSIGN_LINE}a\\t\t__entry->stack_pointer\t= 0;" "$HEADER"
+          echo "[✓] stack_pointer 赋值已插入到第 $((ASSIGN_LINE + 1)) 行"
+  
+          echo "✅ writeback.h stack_pointer 字段插入完成"
+  
+          # 打印关键区域供确认
+          echo ""
+          echo "--- 修改后的关键区域预览 ---"
+          grep -n -A1 -B1 "stack_pointer" "$HEADER"
+          echo "--- 预览结束 ---"
+
+  
+  
+
+      - name: 【5-1】writeback.h 结构完整性校验
+        id: writeback-header-check
+        run: |
+          HEADER="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h"
+  
+          echo "==================== writeback.h 结构完整性校验 ===================="
+  
+          # 文件存在性检查
+          if [ ! -f "$HEADER" ]; then
+            echo "❌ writeback.h 文件不存在：$HEADER"
+            exit 1
+          fi
+          echo "[✓] 文件存在：$HEADER"
+  
+          # 获取关键行号（默认值 0 兜底，避免空变量比较报错）
+          STRUCT_START=$(grep -n "TP_STRUCT__entry" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_START=${STRUCT_START:-0}
+  
+          STRUCT_END=$(grep -n "TP_fast_assign" "$HEADER" | head -1 | cut -d: -f1)
+          STRUCT_END=${STRUCT_END:-0}
+  
+          # 搜索 stack_pointer 声明（__field 形式）
+          SP_DECLARE=$(grep -n "__field.*stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
+          SP_DECLARE=${SP_DECLARE:-0}
+  
+          # 搜索 stack_pointer 赋值（__entry-> 形式）
+          SP_ASSIGN=$(grep -n "__entry->stack_pointer" "$HEADER" | head -1 | cut -d: -f1)
+          SP_ASSIGN=${SP_ASSIGN:-0}
+  
+          echo "  TP_STRUCT__entry 行号：${STRUCT_START}"
+          echo "  TP_fast_assign 行号：${STRUCT_END}"
+          echo "  stack_pointer 声明行号：${SP_DECLARE}"
+          echo "  stack_pointer 赋值行号：${SP_ASSIGN}"
+  
+          FAIL=0
+  
+          # 校验 TP_STRUCT__entry 存在
+          if [ "$STRUCT_START" -eq 0 ]; then
+            echo "❌ 未找到 TP_STRUCT__entry，文件结构异常"
+            FAIL=1
+          fi
+  
+          # 校验 TP_fast_assign 存在
+          if [ "$STRUCT_END" -eq 0 ]; then
+            echo "❌ 未找到 TP_fast_assign，文件结构异常"
+            FAIL=1
+          fi
+  
+          # 校验 stack_pointer 声明存在
+          if [ "$SP_DECLARE" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 声明，插入步骤可能失败"
+            FAIL=1
+          else
+            # 声明必须在 TP_STRUCT__entry 和 TP_fast_assign 之间
+            if [ "$SP_DECLARE" -gt "$STRUCT_START" ] && [ "$SP_DECLARE" -lt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 声明位置正确（TP_STRUCT__entry 内部）"
+            else
+              echo "❌ stack_pointer 声明位置不正确（行号 $SP_DECLARE，不在 $STRUCT_START-$STRUCT_END 之间）"
+              FAIL=1
+            fi
+          fi
+  
+          # 校验 stack_pointer 赋值存在
+          if [ "$SP_ASSIGN" -eq 0 ]; then
+            echo "❌ 未找到 stack_pointer 赋值，插入步骤可能失败"
+            FAIL=1
+          else
+            # 赋值必须在 TP_fast_assign 之后
+            if [ "$SP_ASSIGN" -gt "$STRUCT_END" ]; then
+              echo "[✓] stack_pointer 赋值位置正确（TP_fast_assign 之后）"
+            else
+              echo "❌ stack_pointer 赋值位置不正确（行号 $SP_ASSIGN，应在 $STRUCT_END 之后）"
+              FAIL=1
+            fi
+          fi
+  
+          if [ $FAIL -eq 1 ]; then
+            echo ""
+            echo "❌ writeback.h 结构完整性校验失败，终止编译"
+            echo "请检查 writeback.h 原始内容，确认 TP_STRUCT__entry 和 TP_fast_assign 块内字段名称"
+            exit 1
+          fi
+  
+          echo ""
+          echo "✅ writeback.h 结构完整性校验通过"
+  
+
+
+
+      - name: 【5-2】修复AppArmor crypto.c变长数组问题
+        id: fix-apparmor-crypto
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp security/apparmor/crypto.c security/apparmor/crypto.c.bak
+          python3 << 'PYEOF'
+          content = open('security/apparmor/crypto.c', 'r').read()
+          func_name = 'int aa_calc_profile_hash'
+          idx = content.find(func_name)
+          brace_start = content.find('{', idx)
+          depth = 1
+          pos = brace_start + 1
+          while pos < len(content) and depth > 0:
+              if content[pos] == '{': depth += 1
+              elif content[pos] == '}': depth -= 1
+              pos += 1
+          new_func = '''int aa_calc_profile_hash(struct aa_profile *profile, u32 version, void *start, size_t len)
+          {
+              struct shash_desc *desc;
+              int error = -ENOMEM;
+              u32 le32_version = cpu_to_le32(version);
+              if (!apparmor_tfm) return 0;
+              profile->hash = kzalloc(apparmor_hash_size, GFP_KERNEL);
+              if (!profile->hash) goto fail;
+              desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(apparmor_tfm), GFP_KERNEL);
+              if (!desc) goto fail;
+              desc->tfm = apparmor_tfm;
+              desc->flags = 0;
+              error = crypto_shash_init(desc);
+              if (error) goto fail_desc;
+              error = crypto_shash_update(desc, (u8 *)&le32_version, 4);
+              if (error) goto fail_desc;
+              error = crypto_shash_update(desc, (u8 *)start, len);
+              if (error) goto fail_desc;
+              error = crypto_shash_final(desc, profile->hash);
+              if (error) goto fail_desc;
+              kfree(desc);
+              return 0;
+          fail_desc:
+              kfree(desc);
+          fail:
+              kfree(profile->hash);
+              profile->hash = NULL;
+              return error;
+          }'''
+          content = content[:idx] + new_func + content[pos:]
+          open('security/apparmor/crypto.c', 'w').write(content)
+          print("[✓] 变长数组修复完成")
+          PYEOF
+
+      - name: 【5-2校验】AppArmor crypto.c变长数组校验
+        run: |
+          CRYPTO_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/security/apparmor/crypto.c
+          grep -q "char ctx\[crypto_shash_descsize" "$CRYPTO_FILE" && echo "[✗] 变长数组未移除" && exit 1
+          echo "✅ 变长数组已移除，校验通过"
+
+      - name: 【5-3】修复stack_pointer.h全局寄存器变量不兼容问题
+        id: fix-stack-pointer
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp arch/arm64/include/asm/stack_pointer.h arch/arm64/include/asm/stack_pointer.h.bak
+          sed -i 's/register unsigned long current_stack_pointer asm ("sp");/static __always_inline unsigned long current_stack_pointer(void) { unsigned long sp; asm volatile("mov %0, sp" : "=r"(sp)); return sp; }/' arch/arm64/include/asm/stack_pointer.h
+          echo "[✓] 全局寄存器变量已替换为内联函数"
+
+      - name: 【5-3校验】stack_pointer.h修复校验
+        run: |
+          FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/stack_pointer.h
+          grep -q 'register unsigned long current_stack_pointer asm' "$FILE" && echo "[✗] 旧代码残留" && exit 1
+          echo "✅ 全局寄存器变量已完全移除，校验通过"
+
+      - name: 【5-4】回滚spinlock.h错误的通用寄存器约束，恢复原生I立即数兼容
+        id: fix-spinlock
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cp arch/arm64/include/asm/spinlock.h arch/arm64/include/asm/spinlock.h.bak
+          sed -i 's/"r" (1 << TICKET_SHIFT)/"I" (1 << TICKET_SHIFT)/g' arch/arm64/include/asm/spinlock.h
+          echo "[✓] spinlock.h 原生I立即数约束已恢复"
+
+      - name: 【5-4校验】spinlock.h适配校验
+        run: |
+          SPINLOCK_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/arch/arm64/include/asm/spinlock.h
+          grep -q '"r" (1 << TICKET_SHIFT)' "$SPINLOCK_FILE" && echo "[✗] 通用寄存器约束残留" && exit 1
+          echo "✅ spinlock.h 适配校验通过，规避位宽不匹配汇编错误"
+
+
+
+      - name: 【5-5】批量适配 current_stack_pointer 为函数调用形式
+        id: adapt-stack-pointer-calls
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          echo "正在扫描所有包含 current_stack_pointer 的源文件..."
+      
+          grep -rl "current_stack_pointer" --include="*.c" --include="*.h" . \
+            | grep -v "arch/arm64/include/asm/stack_pointer.h" \
+            | while read f; do
+                echo "  适配: $f"
+                sed -i '/current_stack_pointer()/!s/current_stack_pointer/current_stack_pointer()/g' "$f"
+              done
+      
+          echo "[✓] 所有调用点已适配为函数调用形式"
+
+
+
+
+
+      - name: 【5-5校验】调用点适配完整性校验
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          # 检查是否还有未适配的变量引用（排除头文件定义本身）
+          RESIDUAL=$(grep -rn "current_stack_pointer" --include="*.c" --include="*.h" \
+            --exclude="stack_pointer.h" . | grep -v "current_stack_pointer()" | grep -v "static __always_inline" | wc -l)
+          if [ "$RESIDUAL" -gt 0 ]; then
+            echo "[✗] 仍有 ${RESIDUAL} 处未适配的调用点"
+            exit 1
+          fi
+          echo "✅ 所有调用点适配完成，校验通过"
 
   
       # ==================== 模块六：Docker/LXC全量配置编译前最终校验层（完整版） ====================
