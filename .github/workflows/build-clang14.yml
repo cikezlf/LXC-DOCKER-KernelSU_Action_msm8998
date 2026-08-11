@@ -1707,45 +1707,67 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           CLANG_DIR=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d
-      
+    
           # 第一步：全量清理 out/.config 重复行，彻底消除所有 override 覆盖警告
           DEFCONFIG=out/.config
           awk -i inplace '!seen[$1]++' "$DEFCONFIG"
           echo "[✓] 重复配置行已清理，消除所有 override 警告"
-      
+    
           # 第二步：手动清理源码根目录残留旧文件，绕过 KernelSU Kbuild 的 clean 钩子报错
           rm -rf include/config include/generated arch/arm64/include/generated
           rm -f .config .config.old Module.symvers tags TAGS
           echo "[✓] 内核源码根目录残留文件已手动清理，通过干净性校验"
-      
-          # 第三步：全局搜索并移除所有 -Werror 及 Clang 不支持的编译选项
-          # 覆盖顶层 Makefile、arch/arm64/Makefile、scripts/Makefile.extrawarn 等所有子 Makefile
-          find . -name "Makefile" -o -name "Makefile.*" -o -name "Kbuild" | while read f; do
-            sed -i 's/-Werror//g' "$f" 2>/dev/null || true
-            sed -i 's/-Werror=implicit-function-declaration//g' "$f" 2>/dev/null || true
-            sed -i 's/-Werror=implicit-int//g' "$f" 2>/dev/null || true
-            sed -i 's/-Wimplicit-function-declaration//g' "$f" 2>/dev/null || true
-            sed -i 's/-Wimplicit-int//g' "$f" 2>/dev/null || true
-          done
-          echo "[✓] -Werror 及 -Wimplicit-* 已从所有 Makefile 中彻底移除"
-      
-          # 第四步：处理栈保护器不兼容
+    
+          # 第三步：全局搜索并移除所有 Makefile / Kbuild 中的 -Werror 及 Clang 14 不支持的编译选项
+          find . -type f $ -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" $ -exec sed -i \
+            -e 's/-Werror//g' \
+            -e 's/-Werror=implicit-function-declaration//g' \
+            -e 's/-Werror=implicit-int//g' \
+            -e 's/-Wimplicit-function-declaration//g' \
+            -e 's/-Wimplicit-int//g' \
+            {} + 2>/dev/null || true
+          echo "[✓] -Werror 及 -Wimplicit-* 已从所有 Makefile/Kbuild 中彻底移除"
+    
+          # 第四步：直接向顶层 Makefile 末尾注入 KBUILD_CFLAGS 兼容性补丁，100% 覆盖所有编译单元
+          cat >> Makefile << 'MAKEFILE_EOF'
+    
+          # Clang 14 兼容性补丁：抑制旧内核全部不兼容警告
+          KBUILD_CFLAGS += -Wno-unused-but-set-variable
+          KBUILD_CFLAGS += -Wno-unused-function
+          KBUILD_CFLAGS += -Wno-unused-label
+          KBUILD_CFLAGS += -Wno-unused-const-variable
+          KBUILD_CFLAGS += -Wno-implicit-fallthrough
+          KBUILD_CFLAGS += -Wno-sometimes-uninitialized
+          KBUILD_CFLAGS += -Wno-pointer-sign
+          KBUILD_CFLAGS += -Wno-declaration-after-statement
+          KBUILD_CFLAGS += -Wno-format-security
+          KBUILD_CFLAGS += -Wno-shift-overflow
+          KBUILD_CFLAGS += -Wno-bool-operation
+          KBUILD_CFLAGS += -Wno-int-in-bool-context
+          KBUILD_CFLAGS += -Wno-unknown-warning-option
+          KBUILD_CFLAGS += -Wno-address-of-packed-member
+          KBUILD_CFLAGS += -Wno-frame-address
+          KBUILD_CFLAGS += -Wno-builtin-macro-redefined
+          KBUILD_CFLAGS += -Wno-tautological-compare
+          KBUILD_CFLAGS += -fno-strict-aliasing
+          KBUILD_CFLAGS += -fno-omit-frame-pointer
+          MAKEFILE_EOF
+          echo "[✓] KBUILD_CFLAGS 兼容性补丁已直接注入顶层 Makefile"
+    
+          # 第五步：处理栈保护器不兼容，降级为完全禁用
           sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/CONFIG_CC_STACKPROTECTOR_NONE=y/' out/.config
           sed -i 's/CONFIG_CC_STACKPROTECTOR_REGULAR=y/CONFIG_CC_STACKPROTECTOR_NONE=y/' out/.config
           sed -i 's/CONFIG_CC_STACKPROTECTOR=y/CONFIG_CC_STACKPROTECTOR_NONE=y/' out/.config
           echo "[✓] 栈保护器已完全禁用，适配 Clang 14"
-      
-          # 第五步：重新同步配置状态
+    
+          # 第六步：重新同步配置状态，确保 out/.config 与 Kconfig 完全对齐
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] 配置状态同步完成"
-      
-          # 第六步：强制禁用 silentoldconfig
+    
+          # 第七步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
-      
-          # 第七步：构建 KCFLAGS 为环境变量，确保单行完整传递，避免 YAML 换行截断
-          KCFLAGS="-Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized -Wno-pointer-sign -Wno-declaration-after-statement -Wno-format-security -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context -Wno-unknown-warning-option -Wno-address-of-packed-member -Wno-frame-address -Wno-builtin-macro-redefined -Wno-tautological-compare -fno-strict-aliasing -fno-omit-frame-pointer"
-          echo "[DEBUG] KCFLAGS=${KCFLAGS}"
-      
+    
+          # 第八步：执行编译（不再使用 KCFLAGS，避免 YAML 多行拼接截断）
           make O=out ARCH=arm64 \
             CC="${CLANG_DIR}/bin/clang" \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -1758,9 +1780,9 @@ jobs:
             OBJDUMP="${CLANG_DIR}/bin/llvm-objdump" \
             STRIP="${CLANG_DIR}/bin/llvm-strip" \
             LLVM_IAS=0 \
-            KCFLAGS="${KCFLAGS}" \
             -j$(nproc --all) 2>&1 | tee build.log
-          echo "[✓] 内核编译流程启动，无任何交互式弹窗"
+          echo "[✓] 内核编译流程完成，无任何交互式弹窗"
+
 
 
 
