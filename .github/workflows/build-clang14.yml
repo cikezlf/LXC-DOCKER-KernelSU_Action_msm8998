@@ -1039,7 +1039,7 @@ jobs:
             CONFIG_NF_NAT_IPV4=y \
             CONFIG_NF_NAT_MASQUERADE_IPV4=y \
             CONFIG_NFT_MASQ_IPV4=y \
-             CONFIG_NFT_REDIR_IPV4=y \
+            CONFIG_NFT_REDIR_IPV4=y \
             CONFIG_NF_TABLES_BRIDGE=y \
             CONFIG_NFT_MASQ=y \
             CONFIG_NFT_NAT=y \
