@@ -845,7 +845,6 @@ jobs:
 
 
 
-
       - name: 追加 Docker/LXC 缺失内核配置
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
@@ -910,21 +909,29 @@ jobs:
           CONFIG_NFT_MASQ_IPV6=y
           CONFIG_NFT_REDIR_IPV6=y
           EOF
-          
+      
+          # ========== 核心修复部分：强制禁用 ANDROID_PARANOID_NETWORK ==========
+          DEFCONFIG=.config
+          # 删除所有已存在的 CONFIG_ANDROID_PARANOID_NETWORK 相关配置行，避免残留冲突
+          sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG"
+          # 写入标准禁用声明，完全匹配校验脚本的精确匹配规则
+          echo '# CONFIG_ANDROID_PARANOID_NETWORK is not set' >> "$DEFCONFIG"
+      
           # 强制写入 CONFIG_LSM（不带双引号，适配校验脚本精确匹配）
           sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf/' .config
           if ! grep -q '^CONFIG_LSM=' .config; then
             echo 'CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf' >> .config
           fi
-          
+      
           cd ..
           make olddefconfig
-          
-          # olddefconfig 后再次确保 CONFIG_LSM 不被覆盖（同样不带双引号）
+      
+          # olddefconfig 执行后再次兜底锁定 ANDROID_PARANOID_NETWORK 禁用状态，阻断Kconfig自动重置
           cd out
-          sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM=lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf/' .config
-          cd ..
-
+          sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' .config
+          echo '# CONFIG_ANDROID_PARANOID_NETWORK is not set' >> .config
+      
+          echo "[✓] 全部 Docker/LXC 缺失配置已追加，ANDROID_PARANOID_NETWORK 已彻底禁用"
 
 
 
