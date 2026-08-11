@@ -1701,7 +1701,7 @@ jobs:
 
 
 
-
+      
       - name: 【7-2】执行内核编译（使用Clang14 + LLD，无任何弹窗卡死 + 干净性校验修复）
         id: build-kernel
         run: |
@@ -1725,9 +1725,10 @@ jobs:
           # 第四步：强制禁用 silentoldconfig，彻底阻断交互式弹窗逻辑
           export KCONFIG_NO_SILENTOLD=1
       
-          # 第五步：Clang 14 编译旧内核兼容性修复
-          # 禁用集成汇编器，使用 GNU as 处理旧语法内联汇编
-          # 抑制新版本 Clang 引入的警告升级为错误
+          # 第五步：Clang 14 编译旧内核全量兼容性修复
+          # - LLVM_IAS=0：禁用集成汇编器，使用 GNU as 处理旧语法内联汇编
+          # - -Wno-error：降级所有警告为非致命，避免 Clang 14 新警告中断编译
+          # - -Wno-*：逐一抑制旧内核常见的不兼容警告
           make O=out ARCH=arm64 \
             CC=${CLANG_DIR}/bin/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -1740,7 +1741,7 @@ jobs:
             OBJDUMP=${CLANG_DIR}/bin/llvm-objdump \
             STRIP=${CLANG_DIR}/bin/llvm-strip \
             LLVM_IAS=0 \
-            CFLAGS_KERNEL="-Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized" \
+            CFLAGS_KERNEL="-Wno-error -Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-label -Wno-unused-const-variable -Wno-implicit-fallthrough -Wno-sometimes-uninitialized -Wno-pointer-sign -Wno-declaration-after-statement -Wno-format-security -Wno-shift-overflow -Wno-bool-operation -Wno-int-in-bool-context" \
             -j$(nproc --all) 2>&1 | tee build.log
           echo "[✓] 内核编译流程启动，无任何交互式弹窗"
 
