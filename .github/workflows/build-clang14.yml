@@ -799,6 +799,63 @@ jobs:
           fi
           echo "✅ 所有调用点适配完成，校验通过"
 
+
+
+
+      - name: 追加 Docker/LXC 缺失内核配置
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out
+          cat >> .config << 'EOF'
+          CONFIG_CGROUP_NS=y
+          CONFIG_CGROUP_MISC=y
+          CONFIG_GENEVE=y
+          CONFIG_TAP=y
+          CONFIG_MACVTAP=y
+          CONFIG_IPVLAN_L3S=y
+          CONFIG_NET_IPIP=y
+          CONFIG_NF_CONNTRACK_ZONES=y
+          CONFIG_NF_CONNTRACK_TIMEOUT=y
+          CONFIG_NF_CONNTRACK_TIMESTAMP=y
+          CONFIG_NF_CONNTRACK_LABELS=y
+          CONFIG_NF_TABLES_NETDEV=y
+          CONFIG_NF_TABLES_ARP=y
+          CONFIG_NF_TABLES_BRIDGE=y
+          CONFIG_NFT_REDIR=y
+          CONFIG_NFT_COUNTER=y
+          CONFIG_NFT_LOG=y
+          CONFIG_NFT_LIMIT=y
+          CONFIG_NFT_REJECT=y
+          CONFIG_NFT_COMPAT=y
+          CONFIG_NF_NAT_MASQUERADE=y
+          CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
+          CONFIG_IPV6_MROUTE=y
+          CONFIG_OVERLAY_FS_REDIRECT_DIR=y
+          CONFIG_OVERLAY_FS_REDIRECT_ALWAYS_FOLLOW=y
+          CONFIG_OVERLAY_FS_INDEX=y
+          CONFIG_OVERLAY_FS_XINO_AUTO=y
+          CONFIG_OVERLAY_FS_METACOPY=y
+          CONFIG_SQUASHFS_LZ4=y
+          CONFIG_SQUASHFS_LZO=y
+          CONFIG_SQUASHFS_XZ=y
+          CONFIG_SQUASHFS_ZSTD=y
+          CONFIG_AUTOFS4_FS=y
+          CONFIG_DEFAULT_SECURITY_APPARMOR=y
+          CONFIG_BPF_JIT_ALWAYS_ON=y
+          CONFIG_BPF_UNPRIV_DEFAULT_OFF=y
+          CONFIG_HAVE_EBPF_JIT=y
+          CONFIG_LSM="lockdown,yama,loadpin,safesetid,integrity,apparmor,selinux,smack,tomoyo,bpf"
+          CONFIG_ZFS_INLINE=y
+          CONFIG_ZFS_LZ4=y
+          CONFIG_BRIDGE_EBT_T_FILTER=y
+          CONFIG_BRIDGE_EBT_T_NAT=y
+          CONFIG_BRIDGE_EBT_ARP=y
+          CONFIG_BRIDGE_EBT_IP=y
+          CONFIG_BRIDGE_EBT_IP6=y
+          EOF
+          make olddefconfig
+
+
+
   
       # ==================== 模块六：Docker/LXC全量配置编译前最终校验层（完整版） ====================
       - name: 【6-1】Docker/LXC全量配置编译前最终校验（完整无遗漏）
