@@ -396,7 +396,6 @@ jobs:
           "CONFIG_CRYPTO_SHA512=y"
           "CONFIG_CRYPTO_AES=y"
 
-          echo "===== 2. 命名空间（全量）====="
           "CONFIG_NAMESPACES=y"
           "CONFIG_PID_NS=y"
           "CONFIG_UTS_NS=y"
@@ -404,7 +403,7 @@ jobs:
           "CONFIG_USER_NS=y"
           "CONFIG_NET_NS=y"
 
-          echo "===== 3. 控制组（全量）====="
+
           "CONFIG_CGROUPS=y"
           "CONFIG_CGROUP_CPUACCT=y"
           "CONFIG_CGROUP_DEVICE=y"
@@ -425,7 +424,7 @@ jobs:
           "CONFIG_BLK_DEV_THROTTLING=y"
           "CONFIG_CGROUP_BPF=y"
     
-          echo "===== 4. 网络驱动与Netfilter全量iptables核心支持 ====="
+
           "CONFIG_VETH=y"
           "CONFIG_BRIDGE=y"
           "CONFIG_BRIDGE_NETFILTER=y"
@@ -495,9 +494,8 @@ jobs:
           "CONFIG_BRIDGE_EBT_ARP=y"
           "CONFIG_BRIDGE_EBT_IP=y"
           "CONFIG_BRIDGE_EBT_IP6=y"
-          echo "[✓] Netfilter全量iptables核心支持配置已全部写入完成"
 
-          echo "===== 5. 存储与文件系统（全量）====="
+
           "CONFIG_OVERLAY_FS=y"
           "CONFIG_EXT4_FS=y"
           "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -513,7 +511,7 @@ jobs:
           "CONFIG_DEVTMPFS_MOUNT=y"
 
 
-          echo "===== 6. 安全机制（全量）====="
+
           "CONFIG_SECCOMP=y"
           "CONFIG_SECCOMP_FILTER=y"
           "CONFIG_SECURITY_APPARMOR=y"
@@ -522,17 +520,16 @@ jobs:
           "CONFIG_BPF_JIT=y"
           "CONFIG_CGROUP_BPF=y"
 
-          echo "===== 7. 进程间通信与通用功能 ====="
+
           "CONFIG_SYSVIPC=y"
           "CONFIG_POSIX_MQUEUE=y"
           "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           "CONFIG_FHANDLE=y"
 
-          echo "===== 8. 容器热迁移与功能修复 ====="
-          "CONFIG_CHECKPOINT_RESTORE=y"
-          "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
-          echo "===== 9. 新增ZFS完整支持 ====="
+          "CONFIG_CHECKPOINT_RESTORE=y"
+
+
           "CONFIG_ZFS=y"
           "CONFIG_ZFS_POSIX_ACL=y"
           "CONFIG_ZFS_XATTR=y"
@@ -786,7 +783,6 @@ jobs:
           "CONFIG_CRYPTO_SHA512=y"
           "CONFIG_CRYPTO_AES=y"
 
-          echo "===== 2. 命名空间（全量）====="
           "CONFIG_NAMESPACES=y"
           "CONFIG_PID_NS=y"
           "CONFIG_UTS_NS=y"
@@ -794,7 +790,7 @@ jobs:
           "CONFIG_USER_NS=y"
           "CONFIG_NET_NS=y"
 
-          echo "===== 3. 控制组（全量）====="
+
           "CONFIG_CGROUPS=y"
           "CONFIG_CGROUP_CPUACCT=y"
           "CONFIG_CGROUP_DEVICE=y"
@@ -815,7 +811,7 @@ jobs:
           "CONFIG_BLK_DEV_THROTTLING=y"
           "CONFIG_CGROUP_BPF=y"
     
-          echo "===== 4. 网络驱动与Netfilter全量iptables核心支持 ====="
+
           "CONFIG_VETH=y"
           "CONFIG_BRIDGE=y"
           "CONFIG_BRIDGE_NETFILTER=y"
@@ -885,9 +881,8 @@ jobs:
           "CONFIG_BRIDGE_EBT_ARP=y"
           "CONFIG_BRIDGE_EBT_IP=y"
           "CONFIG_BRIDGE_EBT_IP6=y"
-          echo "[✓] Netfilter全量iptables核心支持配置已全部写入完成"
 
-          echo "===== 5. 存储与文件系统（全量）====="
+
           "CONFIG_OVERLAY_FS=y"
           "CONFIG_EXT4_FS=y"
           "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -903,7 +898,7 @@ jobs:
           "CONFIG_DEVTMPFS_MOUNT=y"
 
 
-          echo "===== 6. 安全机制（全量）====="
+
           "CONFIG_SECCOMP=y"
           "CONFIG_SECCOMP_FILTER=y"
           "CONFIG_SECURITY_APPARMOR=y"
@@ -912,17 +907,17 @@ jobs:
           "CONFIG_BPF_JIT=y"
           "CONFIG_CGROUP_BPF=y"
 
-          echo "===== 7. 进程间通信与通用功能 ====="
+
           "CONFIG_SYSVIPC=y"
           "CONFIG_POSIX_MQUEUE=y"
           "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           "CONFIG_FHANDLE=y"
 
-          echo "===== 8. 容器热迁移与功能修复 ====="
-          "CONFIG_CHECKPOINT_RESTORE=y"
-          "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
-          echo "===== 9. 新增ZFS完整支持 ====="
+          "CONFIG_CHECKPOINT_RESTORE=y"
+
+
+
           "CONFIG_ZFS=y"
           "CONFIG_ZFS_POSIX_ACL=y"
           "CONFIG_ZFS_XATTR=y"
@@ -1023,7 +1018,7 @@ jobs:
           "CONFIG_CRYPTO_SHA512=y"
           "CONFIG_CRYPTO_AES=y"
 
-          echo "===== 2. 命名空间（全量）====="
+
           "CONFIG_NAMESPACES=y"
           "CONFIG_PID_NS=y"
           "CONFIG_UTS_NS=y"
@@ -1031,7 +1026,6 @@ jobs:
           "CONFIG_USER_NS=y"
           "CONFIG_NET_NS=y"
 
-          echo "===== 3. 控制组（全量）====="
           "CONFIG_CGROUPS=y"
           "CONFIG_CGROUP_CPUACCT=y"
           "CONFIG_CGROUP_DEVICE=y"
@@ -1052,7 +1046,7 @@ jobs:
           "CONFIG_BLK_DEV_THROTTLING=y"
           "CONFIG_CGROUP_BPF=y"
     
-          echo "===== 4. 网络驱动与Netfilter全量iptables核心支持 ====="
+
           "CONFIG_VETH=y"
           "CONFIG_BRIDGE=y"
           "CONFIG_BRIDGE_NETFILTER=y"
@@ -1122,9 +1116,9 @@ jobs:
           "CONFIG_BRIDGE_EBT_ARP=y"
           "CONFIG_BRIDGE_EBT_IP=y"
           "CONFIG_BRIDGE_EBT_IP6=y"
-          echo "[✓] Netfilter全量iptables核心支持配置已全部写入完成"
 
-          echo "===== 5. 存储与文件系统（全量）====="
+
+
           "CONFIG_OVERLAY_FS=y"
           "CONFIG_EXT4_FS=y"
           "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -1140,7 +1134,7 @@ jobs:
           "CONFIG_DEVTMPFS_MOUNT=y"
 
 
-          echo "===== 6. 安全机制（全量）====="
+
           "CONFIG_SECCOMP=y"
           "CONFIG_SECCOMP_FILTER=y"
           "CONFIG_SECURITY_APPARMOR=y"
@@ -1149,17 +1143,17 @@ jobs:
           "CONFIG_BPF_JIT=y"
           "CONFIG_CGROUP_BPF=y"
 
-          echo "===== 7. 进程间通信与通用功能 ====="
+
           "CONFIG_SYSVIPC=y"
           "CONFIG_POSIX_MQUEUE=y"
           "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           "CONFIG_FHANDLE=y"
 
-          echo "===== 8. 容器热迁移与功能修复 ====="
-          "CONFIG_CHECKPOINT_RESTORE=y"
-          "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
-          echo "===== 9. 新增ZFS完整支持 ====="
+          "CONFIG_CHECKPOINT_RESTORE=y"
+
+
+
           "CONFIG_ZFS=y"
           "CONFIG_ZFS_POSIX_ACL=y"
           "CONFIG_ZFS_XATTR=y"
@@ -1863,7 +1857,7 @@ jobs:
           "CONFIG_CRYPTO_SHA512=y"
           "CONFIG_CRYPTO_AES=y"
 
-          echo "===== 2. 命名空间（全量）====="
+
           "CONFIG_NAMESPACES=y"
           "CONFIG_PID_NS=y"
           "CONFIG_UTS_NS=y"
@@ -1871,7 +1865,7 @@ jobs:
           "CONFIG_USER_NS=y"
           "CONFIG_NET_NS=y"
 
-          echo "===== 3. 控制组（全量）====="
+
           "CONFIG_CGROUPS=y"
           "CONFIG_CGROUP_CPUACCT=y"
           "CONFIG_CGROUP_DEVICE=y"
@@ -1891,8 +1885,7 @@ jobs:
           "CONFIG_NET_CLS_CGROUP=y"
           "CONFIG_BLK_DEV_THROTTLING=y"
           "CONFIG_CGROUP_BPF=y"
-    
-          echo "===== 4. 网络驱动与Netfilter全量iptables核心支持 ====="
+
           "CONFIG_VETH=y"
           "CONFIG_BRIDGE=y"
           "CONFIG_BRIDGE_NETFILTER=y"
@@ -1962,9 +1955,9 @@ jobs:
           "CONFIG_BRIDGE_EBT_ARP=y"
           "CONFIG_BRIDGE_EBT_IP=y"
           "CONFIG_BRIDGE_EBT_IP6=y"
-          echo "[✓] Netfilter全量iptables核心支持配置已全部写入完成"
 
-          echo "===== 5. 存储与文件系统（全量）====="
+
+
           "CONFIG_OVERLAY_FS=y"
           "CONFIG_EXT4_FS=y"
           "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -1980,7 +1973,7 @@ jobs:
           "CONFIG_DEVTMPFS_MOUNT=y"
 
 
-          echo "===== 6. 安全机制（全量）====="
+
           "CONFIG_SECCOMP=y"
           "CONFIG_SECCOMP_FILTER=y"
           "CONFIG_SECURITY_APPARMOR=y"
@@ -1989,17 +1982,16 @@ jobs:
           "CONFIG_BPF_JIT=y"
           "CONFIG_CGROUP_BPF=y"
 
-          echo "===== 7. 进程间通信与通用功能 ====="
           "CONFIG_SYSVIPC=y"
           "CONFIG_POSIX_MQUEUE=y"
           "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           "CONFIG_FHANDLE=y"
 
-          echo "===== 8. 容器热迁移与功能修复 ====="
-          "CONFIG_CHECKPOINT_RESTORE=y"
-          "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
-          echo "===== 9. 新增ZFS完整支持 ====="
+          "CONFIG_CHECKPOINT_RESTORE=y"
+
+
+
           "CONFIG_ZFS=y"
           "CONFIG_ZFS_POSIX_ACL=y"
           "CONFIG_ZFS_XATTR=y"
@@ -2156,7 +2148,7 @@ jobs:
           "CONFIG_CRYPTO_SHA512=y"
           "CONFIG_CRYPTO_AES=y"
 
-          echo "===== 2. 命名空间（全量）====="
+
           "CONFIG_NAMESPACES=y"
           "CONFIG_PID_NS=y"
           "CONFIG_UTS_NS=y"
@@ -2164,7 +2156,7 @@ jobs:
           "CONFIG_USER_NS=y"
           "CONFIG_NET_NS=y"
 
-          echo "===== 3. 控制组（全量）====="
+
           "CONFIG_CGROUPS=y"
           "CONFIG_CGROUP_CPUACCT=y"
           "CONFIG_CGROUP_DEVICE=y"
@@ -2185,7 +2177,7 @@ jobs:
           "CONFIG_BLK_DEV_THROTTLING=y"
           "CONFIG_CGROUP_BPF=y"
     
-          echo "===== 4. 网络驱动与Netfilter全量iptables核心支持 ====="
+
           "CONFIG_VETH=y"
           "CONFIG_BRIDGE=y"
           "CONFIG_BRIDGE_NETFILTER=y"
@@ -2255,9 +2247,9 @@ jobs:
           "CONFIG_BRIDGE_EBT_ARP=y"
           "CONFIG_BRIDGE_EBT_IP=y"
           "CONFIG_BRIDGE_EBT_IP6=y"
-          echo "[✓] Netfilter全量iptables核心支持配置已全部写入完成"
 
-          echo "===== 5. 存储与文件系统（全量）====="
+
+
           "CONFIG_OVERLAY_FS=y"
           "CONFIG_EXT4_FS=y"
           "CONFIG_EXT4_FS_POSIX_ACL=y"
@@ -2273,7 +2265,7 @@ jobs:
           "CONFIG_DEVTMPFS_MOUNT=y"
 
 
-          echo "===== 6. 安全机制（全量）====="
+
           "CONFIG_SECCOMP=y"
           "CONFIG_SECCOMP_FILTER=y"
           "CONFIG_SECURITY_APPARMOR=y"
@@ -2282,17 +2274,17 @@ jobs:
           "CONFIG_BPF_JIT=y"
           "CONFIG_CGROUP_BPF=y"
 
-          echo "===== 7. 进程间通信与通用功能 ====="
+
           "CONFIG_SYSVIPC=y"
           "CONFIG_POSIX_MQUEUE=y"
           "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           "CONFIG_FHANDLE=y"
 
-          echo "===== 8. 容器热迁移与功能修复 ====="
-          "CONFIG_CHECKPOINT_RESTORE=y"
-          "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
 
-          echo "===== 9. 新增ZFS完整支持 ====="
+          "CONFIG_CHECKPOINT_RESTORE=y"
+
+
+
           "CONFIG_ZFS=y"
           "CONFIG_ZFS_POSIX_ACL=y"
           "CONFIG_ZFS_XATTR=y"
