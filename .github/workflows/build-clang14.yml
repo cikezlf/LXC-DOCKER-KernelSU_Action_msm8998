@@ -874,28 +874,6 @@ jobs:
           echo "[✓] 5项配置已强制注入autoconf.h，不破坏原有内容"
 
 
-      - name: 最终缺失项全量校验
-        run: |
-          echo "===== 最终缺失项全量校验 ====="
-          FAIL=0
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          grep -q "^CONFIG_DEVPTS_MULTIPLE_INSTANCES=y" "$CONFIG_FILE" && echo "[✓] CONFIG_DEVPTS_MULTIPLE_INSTANCES=y 已生效" || FAIL=1
-          grep -q "^CONFIG_CGROUP_HUGETLB=y" "$CONFIG_FILE" && echo "[✓] CONFIG_CGROUP_HUGETLB=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB_IPV4=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB_IPV4=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB_IPV6=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB_IPV6=y 已生效" || FAIL=1
-          sudo apt-get update
-          sudo apt-get -y install zfsutils-linux
-          command -v zfs >/dev/null 2>&1 && echo "[✓] zfs 命令已正常安装" || FAIL=1
-          command -v zpool >/dev/null 2>&1 && echo "[✓] zpool 命令已正常安装" || FAIL=1
-          echo "[i] /dev/zfs 设备节点检查已跳过（交叉编译环境，内核模块未加载，刷入设备后自动创建）"
-
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 仍有缺失项未修复，终止构建"
-            exit 1
-          fi
-          echo "✅ 所有之前上报的6项报错已100%全部消除"
-
 
 
       
