@@ -5,7 +5,7 @@ on:
 jobs:
   build:
     name: 内核完整构建流程
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     #runs-on: [self-hosted, Linux, X64]
     if: github.event.repository.owner.id == github.event.sender.id
 
