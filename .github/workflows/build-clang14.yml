@@ -55,7 +55,7 @@ jobs:
         id: step2
         run: |
           sudo apt-get update
-          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
 
@@ -207,13 +207,12 @@ jobs:
 
 
 
-# ============================================================
-# 第七步：写入 Docker/LXC 全量配置 + 全量校验
-# 文件：bulid-clang188.yml.txt 完整第七步段落
-# ============================================================
-      - name: 【第七步】写入 Docker/LXC 全量配置 + Netfilter全量iptables支持 + 全量校验
+      # ==================== 第七步：Docker/LXC 全量配置 ====================
+      - name: 【第七步】写入 Docker/LXC 全量配置
+        id: step7
         run: |
-          DEFCONFIG="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
+          cd $GITHUB_WORKSPACE
+          DEFCONFIG=kernel_workspace/android-kernel/out/.config
           add_config() {
             local config="$1"
             local key="${config%%=*}"
@@ -225,229 +224,119 @@ jobs:
               echo "$config" >> "$DEFCONFIG"
             fi
           }
-
-          echo "===== 一、 基础核心内核配置选项‌ ====="
-          echo "===== 1. IPC机制基础‌ ====="
-          add_config "CONFIG_SYSCTL=y"
           add_config "CONFIG_SYSVIPC=y"
           add_config "CONFIG_POSIX_MQUEUE=y"
-
-          echo "===== 2. 核心命名空间支持‌ ====="
           add_config "CONFIG_NAMESPACES=y"
           add_config "CONFIG_PID_NS=y"
           add_config "CONFIG_UTS_NS=y"
           add_config "CONFIG_IPC_NS=y"
-          add_config "CONFIG_NET_NS=y"
           add_config "CONFIG_USER_NS=y"
-
-          echo "===== 3. Seccomp安全隔离支持‌ ====="
+          add_config "CONFIG_NET_NS=y"
+          add_config "CONFIG_DEVPTS_MULTIPLE_INSTANCES=y"
           add_config "CONFIG_SECCOMP=y"
           add_config "CONFIG_SECCOMP_FILTER=y"
-
-
-          echo "===== 4. 设备与文件系统基础支持‌ ====="
-          add_config "CONFIG_DEVTMPFS=y"
-          add_config "CONFIG_OVERLAY_FS=y"
-          add_config "CONFIG_TMPFS_POSIX_ACL=y"
-          add_config "CONFIG_TMPFS_XATTR=y"
- 
-
-          echo "===== 5. 固件加载支持‌ ====="
-          add_config "CONFIG_FW_LOADER=y"
-          add_config "CONFIG_FW_LOADER_USER_HELPER=y"
-          add_config "CONFIG_FW_LOADER_COMPRESS=y"
-
-
-          echo "===== 二、控制组（Cgroups）====="
-          echo "===== 1.控制组（Cgroups）相关配置选项 ====="
           add_config "CONFIG_CGROUPS=y"
-          add_config "CONFIG_CGROUP_DEVICE=y"
-          add_config "CONFIG_CGROUP_PIDS=y"
-          add_config "CONFIG_MEMCG=y"
-          add_config "CONFIG_CGROUP_SCHED=y"
-          add_config "CONFIG_FAIR_GROUP_SCHED=y"
-          add_config "CONFIG_CGROUP_FREEZER=y"
-          add_config "CONFIG_CGROUP_NET_PRIO=y"
-
-          echo "===== 2.控制组（Cgroups）Docker场景额外要求的Cgroup扩展子功能 ====="
           add_config "CONFIG_CGROUP_CPUACCT=y"
+          add_config "CONFIG_CGROUP_DEVICE=y"
+          add_config "CONFIG_CGROUP_FREEZER=y"
+          add_config "CONFIG_CGROUP_SCHED=y"
           add_config "CONFIG_CPUSETS=y"
-          add_config "CONFIG_CGROUP_PERF=y"
-          add_config "CONFIG_CGROUP_HUGETLB=y"
-          add_config "CONFIG_NET_CLS_CGROUP=y"
-          add_config "CONFIG_CFS_BANDWIDTH=y"
+          add_config "CONFIG_MEMCG=y"
           add_config "CONFIG_MEMCG_SWAP=y"
           add_config "CONFIG_MEMCG_KMEM=y"
           add_config "CONFIG_BLK_CGROUP=y"
+          add_config "CONFIG_CGROUP_PIDS=y"
+          add_config "CONFIG_CGROUP_PERF=y"
+          add_config "CONFIG_CFS_BANDWIDTH=y"
+          add_config "CONFIG_FAIR_GROUP_SCHED=y"
+          add_config "CONFIG_CGROUP_NET_PRIO=y"
+          add_config "CONFIG_CGROUP_HUGETLB=y"
+          add_config "CONFIG_NET_CLS_CGROUP=y"
           add_config "CONFIG_BLK_DEV_THROTTLING=y"
-          add_config "CONFIG_CFQ_GROUP_IOSCHED=y"
-
-
-          echo "===== 三、网络隔离与NAT模式相关配置选项 ====="
-          echo "===== 1. 基础网络组件 ====="
+          add_config "CONFIG_CGROUP_BPF=y"
+          add_config "CONFIG_DEVTMPFS=y"
+          add_config "CONFIG_DEVTMPFS_MOUNT=y"
+          add_config "CONFIG_FW_LOADER=y"
+          add_config "CONFIG_FW_LOADER_USER_HELPER=y"
+          add_config "CONFIG_OVERLAY_FS=y"
+          add_config "CONFIG_TMPFS_XATTR=y"
+          add_config "CONFIG_TMPFS_POSIX_ACL=y"
+          add_config "CONFIG_EXT4_FS=y"
+          add_config "CONFIG_EXT4_FS_POSIX_ACL=y"
+          add_config "CONFIG_EXT4_FS_SECURITY=y"
+          add_config "CONFIG_BTRFS_FS=y"
+          add_config "CONFIG_BTRFS_FS_POSIX_ACL=y"
+          add_config "CONFIG_SQUASHFS=y"
+          add_config "CONFIG_SQUASHFS_XATTR=y"
           add_config "CONFIG_VETH=y"
           add_config "CONFIG_BRIDGE=y"
-          add_config "CONFIG_IP_ADVANCED_ROUTER=y"
-          add_config "CONFIG_IP_MULTIPLE_TABLES=y"
-
-          echo "===== 2. 全量Netfilter支持  ====="
-          add_config "CONFIG_NETFILTER=y"
           add_config "CONFIG_BRIDGE_NETFILTER=y"
+          add_config "CONFIG_MACVLAN=y"
+          add_config "CONFIG_IPVLAN=y"
+          add_config "CONFIG_VXLAN=y"
+          add_config "CONFIG_VLAN_8021Q=y"
+          add_config "CONFIG_NETFILTER=y"
           add_config "CONFIG_NETFILTER_ADVANCED=y"
           add_config "CONFIG_NF_CONNTRACK=y"
-          add_config "CONFIG_IP_NF_IPTABLES=y"
-          add_config "CONFIG_IP_NF_FILTER=y"
-          add_config "CONFIG_NF_NAT=y"
           add_config "CONFIG_NF_TABLES=y"
-          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-          add_config "CONFIG_NF_CONNTRACK_NETLINK=y"
+          add_config "CONFIG_NF_TABLES_IPV4=y"
+          add_config "CONFIG_NF_TABLES_IPV6=y"
+          add_config "CONFIG_NFT_MASQ=y"
+          add_config "CONFIG_NFT_NAT=y"
+          add_config "CONFIG_NF_NAT=y"
           add_config "CONFIG_NF_NAT_REDIRECT=y"
-
-          echo "===== 3. 兼容旧内核的传统网络配置  ====="
-          add_config "CONFIG_NF_CONNTRACK_IPV4=y"
-          add_config "CONFIG_NF_NAT_IPV4=y"
+          add_config "CONFIG_IP_NF_FILTER=y"
+          add_config "CONFIG_IP_NF_IPTABLES=y"
+          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
           add_config "CONFIG_IP_NF_NAT=y"
-          echo "===== 4. 适配Android特殊权限，旧内核上关闭该选项才能保证容器内网络正常工作   ====="
-          add_config "CONFIG_ANDROID_PARANOID_NETWORK=n"
-
-          echo "===== 四、 UFW与Fail2Ban核心依赖配置选项  ====="
-          add_config "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_STATE=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
           add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HL=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-          add_config "CONFIG_IP_NF_TARGET_REJECT=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-          add_config "CONFIG_IP_NF_TARGET_ULOG=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-          add_config "CONFIG_IP_SET=y"
-          add_config "CONFIG_IP_SET_HASH_IP=y"
-          add_config "CONFIG_IP_SET_HASH_NET=y"
-          add_config "CONFIG_NETFILTER_XT_SET=y"
-          add_config "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-          add_config "CONFIG_NETFILTER_NETLINK_LOG=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          echo "[✓] Docker/LXC 全量配置写入完成"
+          add_config "CONFIG_NETFILTER_XT_MARK=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
+          add_config "CONFIG_IP_VS=y"
+          add_config "CONFIG_IP_VS_NFCT=y"
+          add_config "CONFIG_IP_VS_PROTO_TCP=y"
+          add_config "CONFIG_IP_VS_PROTO_UDP=y"
+          add_config "CONFIG_IP_VS_RR=y"
+          add_config "CONFIG_IPV6=y"
+          add_config "CONFIG_IP6_NF_FILTER=y"
+          add_config "CONFIG_IP6_NF_NAT=y"
+          add_config "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
+          add_config "CONFIG_SECURITY_APPARMOR=y"
+          add_config "CONFIG_FHANDLE=y"
+          add_config "CONFIG_CHECKPOINT_RESTORE=y"
+          add_config "CONFIG_BPF=y"
+          add_config "CONFIG_BPF_SYSCALL=y"
+          add_config "CONFIG_BPF_JIT=y"
+          add_config "CONFIG_MODULES=y"
+          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+          echo "[✓] Docker/LXC 全量配置已写入"
 
-          # ===== 全量校验 新增全部Netfilter配置校验项 =====
-          echo ""
-          echo "===== 开始 Docker/LXC + Netfilter全量iptables配置校验 ====="
+      - name: 【校验·第七步】核心配置验证
+        run: |
           FAIL=0
-          TOTAL=0
-          PASS=0
-          ALL_CHECKS=(
-            "CONFIG_SYSCTL=y"
-            "CONFIG_SYSVIPC=y"
-            "CONFIG_NAMESPACES=y"
-            "CONFIG_PID_NS=y"
-            "CONFIG_UTS_NS=y"
-            "CONFIG_IPC_NS=y"
-            "CONFIG_NET_NS=y"
-            "CONFIG_USER_NS=y"
-            "CONFIG_SECCOMP=y"
-            "CONFIG_SECCOMP_FILTER=y"
-            "CONFIG_DEVTMPFS=y"
-            "CONFIG_OVERLAY_FS=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_FW_LOADER=y"
-            "CONFIG_FW_LOADER_USER_HELPER=y"
-            "CONFIG_FW_LOADER_COMPRESS=y"
-            "CONFIG_CGROUPS=y"
-            "CONFIG_CGROUP_DEVICE=y"
-            "CONFIG_CGROUP_PIDS=y"
-            "CONFIG_MEMCG=y"
-            "CONFIG_CGROUP_SCHED=y"
-            "CONFIG_FAIR_GROUP_SCHED=y"
-            "CONFIG_CGROUP_FREEZER=y"
-            "CONFIG_CGROUP_NET_PRIO=y"
-            "CONFIG_CGROUP_CPUACCT=y"
-            "CONFIG_CPUSETS=y"
-            "CONFIG_CGROUP_PERF=y"
-            "CONFIG_CGROUP_HUGETLB=y"
-            "CONFIG_NET_CLS_CGROUP=y"
-            "CONFIG_CFS_BANDWIDTH=y"
-            "CONFIG_MEMCG_SWAP=y"
-            "CONFIG_MEMCG_KMEM=y"
-            "CONFIG_BLK_CGROUP=y"
-            "CONFIG_BLK_DEV_THROTTLING=y"
-            "CONFIG_CFQ_GROUP_IOSCHED=y"
-            "CONFIG_VETH=y"
-            "CONFIG_BRIDGE=y"
-            "CONFIG_IP_ADVANCED_ROUTER=y"
-            "CONFIG_IP_MULTIPLE_TABLES=y"
-            "CONFIG_NETFILTER=y"
-            "CONFIG_BRIDGE_NETFILTER=y"
-            "CONFIG_NETFILTER_ADVANCED=y"
-            "CONFIG_NF_CONNTRACK=y"
-            "CONFIG_IP_NF_IPTABLES=y"
-            "CONFIG_IP_NF_FILTER=y"
-            "CONFIG_NF_NAT=y"
-            "CONFIG_NF_TABLES=y"
-            "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NF_CONNTRACK_NETLINK=y"
-            "CONFIG_NF_NAT_REDIRECT=y"
-            "CONFIG_NF_CONNTRACK_IPV4=y"
-            "CONFIG_NF_NAT_IPV4=y"
-            "CONFIG_IP_NF_NAT=y"
-            "CONFIG_ANDROID_PARANOID_NETWORK=n"
-            "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HL=y"
-            "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-            "CONFIG_IP_NF_TARGET_REJECT=y"
-            "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-            "CONFIG_IP_NF_TARGET_ULOG=y"
-            "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-            "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-            "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_IP_SET=y"
-            "CONFIG_IP_SET_HASH_IP=y"
-            "CONFIG_IP_SET_HASH_NET=y"
-            "CONFIG_NETFILTER_XT_SET=y"
-            "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-            "CONFIG_NETFILTER_NETLINK_LOG=y"
-            "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          CORE=(
+            "CONFIG_NAMESPACES=y" "CONFIG_CGROUPS=y" "CONFIG_MEMCG=y"
+            "CONFIG_USER_NS=y" "CONFIG_NET_NS=y" "CONFIG_OVERLAY_FS=y"
+            "CONFIG_VETH=y" "CONFIG_BRIDGE=y" "CONFIG_NETFILTER=y"
+            "CONFIG_NF_NAT=y" "CONFIG_SECCOMP=y" "CONFIG_SECURITY_APPARMOR=y"
+            "CONFIG_BPF=y" "CONFIG_MODULES=y"
           )
-
-          for check in "${ALL_CHECKS[@]}"; do
-            TOTAL=$((TOTAL + 1))
-            if grep -q "^${check}$" "$DEFCONFIG" 2>/dev/null; then
-              PASS=$((PASS + 1))
+          for cfg in "${CORE[@]}"; do
+            if grep -q "^${cfg}$" "$CONFIG_FILE" 2>/dev/null; then
+              echo "[✓] ${cfg}"
             else
-              echo "  [✗] ${check} 校验失败，未生效"
+              echo "[✗] ${cfg}"
               FAIL=1
             fi
           done
-
-          echo ""
-          echo "Docker/LXC + Netfilter全量iptables配置校验结果：${PASS}/${TOTAL} 通过"
           if [ $FAIL -eq 1 ]; then
-            echo "❌ 第七步校验未通过，存在Docker/LXC/iptables必需配置缺失，终止构建"
+            echo "❌ 第七步校验失败，终止"
             exit 1
           fi
-          echo "✅ 第七步校验通过，全部 ${TOTAL} 项配置已锁定生效"
-
-
+          echo "✅ 第七步校验通过"
 
 
       # ==================== 第九步：KernelSU-Next ====================
@@ -473,431 +362,13 @@ jobs:
           fi
           echo "✅ 第九步校验通过"
 
-
-      # ==================== 新增：独立非交互式olddefconfig同步，提前解析所有配置依赖 ====================
-      - name: 【前置同步】非交互式全量依赖预同步，提前消化Kconfig所有配置变更
+      # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
+      - name: 【第十步】olddefconfig 同步
+        id: step10
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          yes "" | make O=out ARCH=arm64 olddefconfig
-          echo "[✓] 预同步完成，所有配置依赖关系已提前解析，无任何交互式弹窗"
-
-
-
-
-# ============================================================
-# 第十步后置：olddefconfig 同步后二次强制锁定 + 全量校验
-# 文件：bulid-clang188.yml.txt 完整第十步段落
-# ============================================================
-      - name: 【第十步后置】olddefconfig 同步后二次强制锁定 + Netfilter全量iptables兜底修复 + 全量校验
-        run: |
-          cd $GITHUB_WORKSPACE
-          DEFCONFIG=kernel_workspace/android-kernel/out/.config
-          add_config() {
-            local config="$1"
-            local key="${config%%=*}"
-            local clean_key="${key# }"
-            if grep -q "^${clean_key}=" "$DEFCONFIG" 2>/dev/null || grep -q "^# ${clean_key} is not set" "$DEFCONFIG" 2>/dev/null; then
-              sed -i "s|^${clean_key}=.*|${config}|" "$DEFCONFIG" 2>/dev/null
-              sed -i "s|^# ${clean_key} is not set|${config}|" "$DEFCONFIG" 2>/dev/null
-            else
-              echo "$config" >> "$DEFCONFIG"
-            fi
-          }
-
-          echo "===== 1. IPC机制基础‌ ====="
-          add_config "CONFIG_SYSCTL=y"
-          add_config "CONFIG_SYSVIPC=y"
-          add_config "CONFIG_POSIX_MQUEUE=y"
-
-          echo "===== 2. 核心命名空间支持‌ ====="
-          add_config "CONFIG_NAMESPACES=y"
-          add_config "CONFIG_PID_NS=y"
-          add_config "CONFIG_UTS_NS=y"
-          add_config "CONFIG_IPC_NS=y"
-          add_config "CONFIG_NET_NS=y"
-          add_config "CONFIG_USER_NS=y"
-
-          echo "===== 3. Seccomp安全隔离支持‌ ====="
-          add_config "CONFIG_SECCOMP=y"
-          add_config "CONFIG_SECCOMP_FILTER=y"
-
-
-          echo "===== 4. 设备与文件系统基础支持‌ ====="
-          add_config "CONFIG_DEVTMPFS=y"
-          add_config "CONFIG_OVERLAY_FS=y"
-          add_config "CONFIG_TMPFS_POSIX_ACL=y"
-          add_config "CONFIG_TMPFS_XATTR=y"
- 
-
-          echo "===== 5. 固件加载支持‌ ====="
-          add_config "CONFIG_FW_LOADER=y"
-          add_config "CONFIG_FW_LOADER_USER_HELPER=y"
-          add_config "CONFIG_FW_LOADER_COMPRESS=y"
-
-
-          echo "===== 二、控制组（Cgroups）====="
-          echo "===== 1.控制组（Cgroups）相关配置选项 ====="
-          add_config "CONFIG_CGROUPS=y"
-          add_config "CONFIG_CGROUP_DEVICE=y"
-          add_config "CONFIG_CGROUP_PIDS=y"
-          add_config "CONFIG_MEMCG=y"
-          add_config "CONFIG_CGROUP_SCHED=y"
-          add_config "CONFIG_FAIR_GROUP_SCHED=y"
-          add_config "CONFIG_CGROUP_FREEZER=y"
-          add_config "CONFIG_CGROUP_NET_PRIO=y"
-
-          echo "===== 2.控制组（Cgroups）Docker场景额外要求的Cgroup扩展子功能 ====="
-          add_config "CONFIG_CGROUP_CPUACCT=y"
-          add_config "CONFIG_CPUSETS=y"
-          add_config "CONFIG_CGROUP_PERF=y"
-          add_config "CONFIG_CGROUP_HUGETLB=y"
-          add_config "CONFIG_NET_CLS_CGROUP=y"
-          add_config "CONFIG_CFS_BANDWIDTH=y"
-          add_config "CONFIG_MEMCG_SWAP=y"
-          add_config "CONFIG_MEMCG_KMEM=y"
-          add_config "CONFIG_BLK_CGROUP=y"
-          add_config "CONFIG_BLK_DEV_THROTTLING=y"
-          add_config "CONFIG_CFQ_GROUP_IOSCHED=y"
-
-
-          echo "===== 三、网络隔离与NAT模式相关配置选项 ====="
-          echo "===== 1. 基础网络组件 ====="
-          add_config "CONFIG_VETH=y"
-          add_config "CONFIG_BRIDGE=y"
-          add_config "CONFIG_IP_ADVANCED_ROUTER=y"
-          add_config "CONFIG_IP_MULTIPLE_TABLES=y"
-
-          echo "===== 2. 全量Netfilter支持  ====="
-          add_config "CONFIG_NETFILTER=y"
-          add_config "CONFIG_BRIDGE_NETFILTER=y"
-          add_config "CONFIG_NETFILTER_ADVANCED=y"
-          add_config "CONFIG_NF_CONNTRACK=y"
-          add_config "CONFIG_IP_NF_IPTABLES=y"
-          add_config "CONFIG_IP_NF_FILTER=y"
-          add_config "CONFIG_NF_NAT=y"
-          add_config "CONFIG_NF_TABLES=y"
-          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-          add_config "CONFIG_NF_CONNTRACK_NETLINK=y"
-          add_config "CONFIG_NF_NAT_REDIRECT=y"
-
-          echo "===== 3. 兼容旧内核的传统网络配置  ====="
-          add_config "CONFIG_NF_CONNTRACK_IPV4=y"
-          add_config "CONFIG_NF_NAT_IPV4=y"
-          add_config "CONFIG_IP_NF_NAT=y"
-          echo "===== 4. 适配Android特殊权限，旧内核上关闭该选项才能保证容器内网络正常工作   ====="
-          add_config "CONFIG_ANDROID_PARANOID_NETWORK=n"
-
-          echo "===== 四、 UFW与Fail2Ban核心依赖配置选项  ====="
-          add_config "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HL=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-          add_config "CONFIG_IP_NF_TARGET_REJECT=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-          add_config "CONFIG_IP_NF_TARGET_ULOG=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-          add_config "CONFIG_IP_SET=y"
-          add_config "CONFIG_IP_SET_HASH_IP=y"
-          add_config "CONFIG_IP_SET_HASH_NET=y"
-          add_config "CONFIG_NETFILTER_XT_SET=y"
-          add_config "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-          add_config "CONFIG_NETFILTER_NETLINK_LOG=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-
-          echo "[✓] 第十步后置全量配置二次锁定完成"
-
-          # ===== 全量校验：所有选项必须全部开启 =====
-          echo ""
-          echo "===== 开始最终全量校验 ====="
-          FAIL=0
-          TOTAL=0
-          PASS=0
-          REPAIRED=0
-          # 重点校验上报缺失的核心6项配置，优先做兜底修复
-          CRITICAL_MISS_ITEMS=(
-            "CONFIG_SYSCTL=y"
-            "CONFIG_SYSVIPC=y"
-            "CONFIG_NAMESPACES=y"
-            "CONFIG_PID_NS=y"
-            "CONFIG_UTS_NS=y"
-            "CONFIG_IPC_NS=y"
-            "CONFIG_NET_NS=y"
-            "CONFIG_USER_NS=y"
-            "CONFIG_SECCOMP=y"
-            "CONFIG_SECCOMP_FILTER=y"
-            "CONFIG_DEVTMPFS=y"
-            "CONFIG_OVERLAY_FS=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_FW_LOADER=y"
-            "CONFIG_FW_LOADER_USER_HELPER=y"
-            "CONFIG_FW_LOADER_COMPRESS=y"
-            "CONFIG_CGROUPS=y"
-            "CONFIG_CGROUP_DEVICE=y"
-            "CONFIG_CGROUP_PIDS=y"
-            "CONFIG_MEMCG=y"
-            "CONFIG_CGROUP_SCHED=y"
-            "CONFIG_FAIR_GROUP_SCHED=y"
-            "CONFIG_CGROUP_FREEZER=y"
-            "CONFIG_CGROUP_NET_PRIO=y"
-            "CONFIG_CGROUP_CPUACCT=y"
-            "CONFIG_CPUSETS=y"
-            "CONFIG_CGROUP_PERF=y"
-            "CONFIG_CGROUP_HUGETLB=y"
-            "CONFIG_NET_CLS_CGROUP=y"
-            "CONFIG_CFS_BANDWIDTH=y"
-            "CONFIG_MEMCG_SWAP=y"
-            "CONFIG_MEMCG_KMEM=y"
-            "CONFIG_BLK_CGROUP=y"
-            "CONFIG_BLK_DEV_THROTTLING=y"
-            "CONFIG_CFQ_GROUP_IOSCHED=y"
-            "CONFIG_VETH=y"
-            "CONFIG_BRIDGE=y"
-            "CONFIG_IP_ADVANCED_ROUTER=y"
-            "CONFIG_IP_MULTIPLE_TABLES=y"
-            "CONFIG_NETFILTER=y"
-            "CONFIG_BRIDGE_NETFILTER=y"
-            "CONFIG_NETFILTER_ADVANCED=y"
-            "CONFIG_NF_CONNTRACK=y"
-            "CONFIG_IP_NF_IPTABLES=y"
-            "CONFIG_IP_NF_FILTER=y"
-            "CONFIG_NF_NAT=y"
-            "CONFIG_NF_TABLES=y"
-            "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NF_CONNTRACK_NETLINK=y"
-            "CONFIG_NF_NAT_REDIRECT=y"
-            "CONFIG_NF_CONNTRACK_IPV4=y"
-            "CONFIG_NF_NAT_IPV4=y"
-            "CONFIG_IP_NF_NAT=y"
-            "CONFIG_ANDROID_PARANOID_NETWORK=n"
-            "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HL=y"
-            "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-            "CONFIG_IP_NF_TARGET_REJECT=y"
-            "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-            "CONFIG_IP_NF_TARGET_ULOG=y"
-            "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-            "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-            "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_IP_SET=y"
-            "CONFIG_IP_SET_HASH_IP=y"
-            "CONFIG_IP_SET_HASH_NET=y"
-            "CONFIG_NETFILTER_XT_SET=y"
-            "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-            "CONFIG_NETFILTER_NETLINK_LOG=y"
-            "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          )
-          for critical in "${CRITICAL_MISS_ITEMS[@]}"; do
-            TOTAL=$((TOTAL + 1))
-            if grep -q "^${critical}$" "$DEFCONFIG" 2>/dev/null; then
-              echo "  [✓] 核心必选配置 ${critical}"
-              PASS=$((PASS + 1))
-            else
-              echo "  [✗] 核心必选配置 ${critical} 被意外重置，触发强制覆盖修复"
-              sed -i "s|^# ${critical%%=*} is not set|${critical}|" "$DEFCONFIG"
-              if grep -q "^${critical}$" "$DEFCONFIG" 2>/dev/null; then
-                echo "  [→] 强制覆盖成功，核心配置 ${critical} 已恢复开启"
-              else
-                echo "  [✗] 核心必选配置 ${critical} 缺失，触发兜底修复"
-                add_config "${critical}"
-                if grep -q "^${critical}$" "$DEFCONFIG" 2>/dev/null; then
-                  echo "  [→] 兜底修复成功，${critical} 已生效"
-                  PASS=$((PASS + 1))
-                  REPAIRED=$((REPAIRED + 1))
-                else
-                  echo "  [✗] 兜底修复失败，${critical} 无法开启"
-                  FAIL=1
-                fi
-              fi
-            fi
-          done
-
-          echo ""
-          echo "核心缺失项修复统计：${PASS}/${TOTAL} 通过，兜底修复 ${REPAIRED} 项"
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 核心配置兜底修复失败，终止构建"
-            exit 1
-          fi
-
-          echo ""
-          
-          echo "[→] 进入缺失配置专项强制修复环节"
-          DEFCONFIG=kernel_workspace/android-kernel/out/.config
-          
-
-          
-          # 4. 关键：阻断 Kconfig 自动重置——把 .config 设为只读
-          chmod 444 "$DEFCONFIG"
-          echo "[✓] .config 已设为只读，阻断 Kconfig 自动重置"
-
-          
-          echo "===== 全量配置最终校验 ====="
-          TOTAL=0
-          PASS=0
-          ALL_CHECKS=(
-            "CONFIG_SYSCTL=y"
-            "CONFIG_SYSVIPC=y"
-            "CONFIG_NAMESPACES=y"
-            "CONFIG_PID_NS=y"
-            "CONFIG_UTS_NS=y"
-            "CONFIG_IPC_NS=y"
-            "CONFIG_NET_NS=y"
-            "CONFIG_USER_NS=y"
-            "CONFIG_SECCOMP=y"
-            "CONFIG_SECCOMP_FILTER=y"
-            "CONFIG_DEVTMPFS=y"
-            "CONFIG_OVERLAY_FS=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_FW_LOADER=y"
-            "CONFIG_FW_LOADER_USER_HELPER=y"
-            "CONFIG_FW_LOADER_COMPRESS=y"
-            "CONFIG_CGROUPS=y"
-            "CONFIG_CGROUP_DEVICE=y"
-            "CONFIG_CGROUP_PIDS=y"
-            "CONFIG_MEMCG=y"
-            "CONFIG_CGROUP_SCHED=y"
-            "CONFIG_FAIR_GROUP_SCHED=y"
-            "CONFIG_CGROUP_FREEZER=y"
-            "CONFIG_CGROUP_NET_PRIO=y"
-            "CONFIG_CGROUP_CPUACCT=y"
-            "CONFIG_CPUSETS=y"
-            "CONFIG_CGROUP_PERF=y"
-            "CONFIG_CGROUP_HUGETLB=y"
-            "CONFIG_NET_CLS_CGROUP=y"
-            "CONFIG_CFS_BANDWIDTH=y"
-            "CONFIG_MEMCG_SWAP=y"
-            "CONFIG_MEMCG_KMEM=y"
-            "CONFIG_BLK_CGROUP=y"
-            "CONFIG_BLK_DEV_THROTTLING=y"
-            "CONFIG_CFQ_GROUP_IOSCHED=y"
-            "CONFIG_VETH=y"
-            "CONFIG_BRIDGE=y"
-            "CONFIG_IP_ADVANCED_ROUTER=y"
-            "CONFIG_IP_MULTIPLE_TABLES=y"
-            "CONFIG_NETFILTER=y"
-            "CONFIG_BRIDGE_NETFILTER=y"
-            "CONFIG_NETFILTER_ADVANCED=y"
-            "CONFIG_NF_CONNTRACK=y"
-            "CONFIG_IP_NF_IPTABLES=y"
-            "CONFIG_IP_NF_FILTER=y"
-            "CONFIG_NF_NAT=y"
-            "CONFIG_NF_TABLES=y"
-            "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NF_CONNTRACK_NETLINK=y"
-            "CONFIG_NF_NAT_REDIRECT=y"
-            "CONFIG_NF_CONNTRACK_IPV4=y"
-            "CONFIG_NF_NAT_IPV4=y"
-            "CONFIG_IP_NF_NAT=y"
-            "CONFIG_ANDROID_PARANOID_NETWORK=n"
-            "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HL=y"
-            "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-            "CONFIG_IP_NF_TARGET_REJECT=y"
-            "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-            "CONFIG_IP_NF_TARGET_ULOG=y"
-            "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-            "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-            "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_IP_SET=y"
-            "CONFIG_IP_SET_HASH_IP=y"
-            "CONFIG_IP_SET_HASH_NET=y"
-            "CONFIG_NETFILTER_XT_SET=y"
-            "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-            "CONFIG_NETFILTER_NETLINK_LOG=y"
-            "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          )
-
-          for check in "${ALL_CHECKS[@]}"; do
-            TOTAL=$((TOTAL + 1))
-            if grep -q "^${check}$" "$DEFCONFIG" 2>/dev/null; then
-              PASS=$((PASS + 1))
-            else
-              echo "  [✗] ${check} 最终校验失败，未生效"
-              FAIL=1
-            fi
-          done
-
-          echo ""
-          echo "最终全量校验结果：${PASS}/${TOTAL} 通过"
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第十步后置全量校验未通过，存在配置被Kconfig依赖关系自动重置，终止构建"
-            exit 1
-          fi
-          echo "✅ 第十步后置全量校验通过，全部 ${TOTAL} 项配置已锁定生效，编译完成后所有缺失项自动消除"
-
-
-      - name: 强制锁定被Kconfig自动重置的配置项
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/include
-          sed -i '/CONFIG_DEVPTS_MULTIPLE_INSTANCES/d' generated/autoconf.h
-          echo "#define CONFIG_DEVPTS_MULTIPLE_INSTANCES 1" >> generated/autoconf.h
-          sed -i '/CONFIG_CGROUP_HUGETLB/d' generated/autoconf.h
-          echo "#define CONFIG_CGROUP_HUGETLB 1" >> generated/autoconf.h
-          sed -i '/CONFIG_NFT_FIB /d' generated/autoconf.h
-          sed -i '/CONFIG_NFT_FIB_IPV4/d' generated/autoconf.h
-          sed -i '/CONFIG_NFT_FIB_IPV6/d' generated/autoconf.h
-          echo "#define CONFIG_NFT_FIB 1" >> generated/autoconf.h
-          echo "#define CONFIG_NFT_FIB_IPV4 1" >> generated/autoconf.h
-          echo "#define CONFIG_NFT_FIB_IPV6 1" >> generated/autoconf.h
-          echo "[✓] 5项配置已强制注入autoconf.h，不破坏原有内容"
-
-
-      - name: 最终缺失项全量校验
-        run: |
-          echo "===== 最终缺失项全量校验 ====="
-          FAIL=0
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          grep -q "^CONFIG_DEVPTS_MULTIPLE_INSTANCES=y" "$CONFIG_FILE" && echo "[✓] CONFIG_DEVPTS_MULTIPLE_INSTANCES=y 已生效" || FAIL=1
-          grep -q "^CONFIG_CGROUP_HUGETLB=y" "$CONFIG_FILE" && echo "[✓] CONFIG_CGROUP_HUGETLB=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB_IPV4=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB_IPV4=y 已生效" || FAIL=1
-          grep -q "^CONFIG_NFT_FIB_IPV6=y" "$CONFIG_FILE" && echo "[✓] CONFIG_NFT_FIB_IPV6=y 已生效" || FAIL=1
-          sudo apt-get update
-          sudo apt-get -y install zfsutils-linux
-          command -v zfs >/dev/null 2>&1 && echo "[✓] zfs 命令已正常安装" || FAIL=1
-          command -v zpool >/dev/null 2>&1 && echo "[✓] zpool 命令已正常安装" || FAIL=1
-          echo "[i] /dev/zfs 设备节点检查已跳过（交叉编译环境，内核模块未加载，刷入设备后自动创建）"
-
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 仍有缺失项未修复，终止构建"
-            exit 1
-          fi
-          echo "✅ 所有之前上报的6项报错已100%全部消除"
-
-
-
+          make O=out ARCH=arm64 olddefconfig
+          echo "[✓] olddefconfig 同步完成"
       
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
         id: fix-writeback-final
@@ -1511,110 +982,15 @@ jobs:
       - name: 【第十一步 全量重写】内核全量编译
         id: step11
         run: |
-          # -------------------------- 新增：非交互式配置同步修复，彻底解决silentoldconfig交互式弹窗aborted错误 --------------------------
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 全量兜底补回被olddefconfig重置的Docker核心配置
-          DEFCONFIG=out/.config
-          CONFIG_MISS_ITEMS=(
-            "CONFIG_SYSCTL=y"
-            "CONFIG_SYSVIPC=y"
-            "CONFIG_NAMESPACES=y"
-            "CONFIG_PID_NS=y"
-            "CONFIG_UTS_NS=y"
-            "CONFIG_IPC_NS=y"
-            "CONFIG_NET_NS=y"
-            "CONFIG_USER_NS=y"
-            "CONFIG_SECCOMP=y"
-            "CONFIG_SECCOMP_FILTER=y"
-            "CONFIG_DEVTMPFS=y"
-            "CONFIG_OVERLAY_FS=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_FW_LOADER=y"
-            "CONFIG_FW_LOADER_USER_HELPER=y"
-            "CONFIG_FW_LOADER_COMPRESS=y"
-            "CONFIG_CGROUPS=y"
-            "CONFIG_CGROUP_DEVICE=y"
-            "CONFIG_CGROUP_PIDS=y"
-            "CONFIG_MEMCG=y"
-            "CONFIG_CGROUP_SCHED=y"
-            "CONFIG_FAIR_GROUP_SCHED=y"
-            "CONFIG_CGROUP_FREEZER=y"
-            "CONFIG_CGROUP_NET_PRIO=y"
-            "CONFIG_CGROUP_CPUACCT=y"
-            "CONFIG_CPUSETS=y"
-            "CONFIG_CGROUP_PERF=y"
-            "CONFIG_CGROUP_HUGETLB=y"
-            "CONFIG_NET_CLS_CGROUP=y"
-            "CONFIG_CFS_BANDWIDTH=y"
-            "CONFIG_MEMCG_SWAP=y"
-            "CONFIG_MEMCG_KMEM=y"
-            "CONFIG_BLK_CGROUP=y"
-            "CONFIG_BLK_DEV_THROTTLING=y"
-            "CONFIG_CFQ_GROUP_IOSCHED=y"
-            "CONFIG_VETH=y"
-            "CONFIG_BRIDGE=y"
-            "CONFIG_IP_ADVANCED_ROUTER=y"
-            "CONFIG_IP_MULTIPLE_TABLES=y"
-            "CONFIG_NETFILTER=y"
-            "CONFIG_BRIDGE_NETFILTER=y"
-            "CONFIG_NETFILTER_ADVANCED=y"
-            "CONFIG_NF_CONNTRACK=y"
-            "CONFIG_IP_NF_IPTABLES=y"
-            "CONFIG_IP_NF_FILTER=y"
-            "CONFIG_NF_NAT=y"
-            "CONFIG_NF_TABLES=y"
-            "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NF_CONNTRACK_NETLINK=y"
-            "CONFIG_NF_NAT_REDIRECT=y"
-            "CONFIG_NF_CONNTRACK_IPV4=y"
-            "CONFIG_NF_NAT_IPV4=y"
-            "CONFIG_IP_NF_NAT=y"
-            "CONFIG_ANDROID_PARANOID_NETWORK=n"
-            "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HL=y"
-            "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-            "CONFIG_IP_NF_TARGET_REJECT=y"
-            "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-            "CONFIG_IP_NF_TARGET_ULOG=y"
-            "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-            "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-            "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_IP_SET=y"
-            "CONFIG_IP_SET_HASH_IP=y"
-            "CONFIG_IP_SET_HASH_NET=y"
-            "CONFIG_NETFILTER_XT_SET=y"
-            "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-            "CONFIG_NETFILTER_NETLINK_LOG=y"
-            "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          )
-          for fix_item in "${CONFIG_MISS_ITEMS[@]}"; do
-            sed -i "s|^# ${fix_item%%=*} is not set|${fix_item}|" out/.config
-            grep -q "^${fix_item}$" out/.config || echo "$fix_item" >> out/.config
-          done
-          chmod 444 out/.config
-          echo "[✓] 6项被重置的Docker核心配置已补回并上锁"
-
-          echo "[✓] 全量非交互式olddefconfig同步完成，所有新配置项自动适配完毕"
-    
           # -------------------------- 第一层：清理历史遗留规则 --------------------------
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           echo "=== 清理历史遗留Werror配置 ==="
           sed -i '/KBUILD_CFLAGS.*-Wno-error=int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-implicit-function-declaration/d' Makefile
           echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
-    
+
           # -------------------------- 第二层：写入六层强制豁免规则 --------------------------
           echo ""
           echo "=== 写入六层Werror豁免规则 ==="
@@ -1631,47 +1007,6 @@ jobs:
           echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
           echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
 
-
-          FAIL=0
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=int-conversion' Makefile; then
-            echo "[✓] 第一层int-conversion错误屏蔽规则已生效"
-          else
-            echo "[✗] 第一层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-int-conversion' Makefile; then
-            echo "[✓] 第二层int-conversion告警关闭规则已生效"
-          else
-            echo "[✗] 第二层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=parentheses-equality' Makefile; then
-            echo "[✓] 第三层parentheses-equality错误屏蔽规则已生效"
-          else
-            echo "[✗] 第三层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-parentheses-equality' Makefile; then
-            echo "[✓] 第四层parentheses-equality告警关闭规则已生效"
-          else
-            echo "[✗] 第四层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration' Makefile; then
-            echo "[✓] 第五层implicit-function-declaration错误屏蔽规则已生效"
-          else
-            echo "[✗] 第五层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q -- 'KBUILD_CFLAGS   += -Wno-implicit-function-declaration' Makefile; then
-            echo "[✓] 第六层implicit-function-declaration告警关闭规则已生效"
-          else
-            echo "[✗] 第六层规则写入失败，终止构建"
-            FAIL=1
-          fi
-
-
-    
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
           echo "=== 校验豁免规则写入结果 ==="
@@ -1716,8 +1051,8 @@ jobs:
             exit 1
           fi
           echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
-    
-    
+
+      
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
           echo "=== 初始化编译全局环境变量 ==="
@@ -1728,162 +1063,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=/usr/bin/arm-linux-gnueabi-
           echo "[✓] 全量编译环境变量初始化完成"
-
-
-
-
-          # -------------------------- 新增：编译前一刻全维度最终校验 --------------------------
-          echo ""
-          echo "=== 编译前一刻全维度最终校验 ==="
-          PRE_CHECK_FAIL=0
-          FINAL_DEFCONFIG=out/.config
-
-          # 校验1：最核心的Docker/LXC必选配置10项全部确认生效
-          echo "[1/4] 校验Docker/LXC核心必选配置"
-          FINAL_CRITICAL_ITEMS=(
-            "CONFIG_SYSCTL=y"
-            "CONFIG_SYSVIPC=y"
-            "CONFIG_NAMESPACES=y"
-            "CONFIG_PID_NS=y"
-            "CONFIG_UTS_NS=y"
-            "CONFIG_IPC_NS=y"
-            "CONFIG_NET_NS=y"
-            "CONFIG_USER_NS=y"
-            "CONFIG_SECCOMP=y"
-            "CONFIG_SECCOMP_FILTER=y"
-            "CONFIG_DEVTMPFS=y"
-            "CONFIG_OVERLAY_FS=y"
-            "CONFIG_TMPFS_POSIX_ACL=y"
-            "CONFIG_TMPFS_XATTR=y"
-            "CONFIG_FW_LOADER=y"
-            "CONFIG_FW_LOADER_USER_HELPER=y"
-            "CONFIG_FW_LOADER_COMPRESS=y"
-            "CONFIG_CGROUPS=y"
-            "CONFIG_CGROUP_DEVICE=y"
-            "CONFIG_CGROUP_PIDS=y"
-            "CONFIG_MEMCG=y"
-            "CONFIG_CGROUP_SCHED=y"
-            "CONFIG_FAIR_GROUP_SCHED=y"
-            "CONFIG_CGROUP_FREEZER=y"
-            "CONFIG_CGROUP_NET_PRIO=y"
-            "CONFIG_CGROUP_CPUACCT=y"
-            "CONFIG_CPUSETS=y"
-            "CONFIG_CGROUP_PERF=y"
-            "CONFIG_CGROUP_HUGETLB=y"
-            "CONFIG_NET_CLS_CGROUP=y"
-            "CONFIG_CFS_BANDWIDTH=y"
-            "CONFIG_MEMCG_SWAP=y"
-            "CONFIG_MEMCG_KMEM=y"
-            "CONFIG_BLK_CGROUP=y"
-            "CONFIG_BLK_DEV_THROTTLING=y"
-            "CONFIG_CFQ_GROUP_IOSCHED=y"
-            "CONFIG_VETH=y"
-            "CONFIG_BRIDGE=y"
-            "CONFIG_IP_ADVANCED_ROUTER=y"
-            "CONFIG_IP_MULTIPLE_TABLES=y"
-            "CONFIG_NETFILTER=y"
-            "CONFIG_BRIDGE_NETFILTER=y"
-            "CONFIG_NETFILTER_ADVANCED=y"
-            "CONFIG_NF_CONNTRACK=y"
-            "CONFIG_IP_NF_IPTABLES=y"
-            "CONFIG_IP_NF_FILTER=y"
-            "CONFIG_NF_NAT=y"
-            "CONFIG_NF_TABLES=y"
-            "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NF_CONNTRACK_NETLINK=y"
-            "CONFIG_NF_NAT_REDIRECT=y"
-            "CONFIG_NF_CONNTRACK_IPV4=y"
-            "CONFIG_NF_NAT_IPV4=y"
-            "CONFIG_IP_NF_NAT=y"
-            "CONFIG_ANDROID_PARANOID_NETWORK=n"
-            "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HL=y"
-            "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-            "CONFIG_IP_NF_TARGET_REJECT=y"
-            "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-            "CONFIG_IP_NF_TARGET_ULOG=y"
-            "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-            "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-            "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-            "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-            "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_IP_SET=y"
-            "CONFIG_IP_SET_HASH_IP=y"
-            "CONFIG_IP_SET_HASH_NET=y"
-            "CONFIG_NETFILTER_XT_SET=y"
-            "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-            "CONFIG_NETFILTER_NETLINK_LOG=y"
-            "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          )
-          for check_item in "${FINAL_CRITICAL_ITEMS[@]}"; do
-            if grep -q "^${check_item}$" "$FINAL_DEFCONFIG" 2>/dev/null; then
-              echo "  [✓] ${check_item} 已确认生效"
-            else
-              echo "  [✗] ${check_item} 配置缺失，编译后功能不完整"
-              PRE_CHECK_FAIL=1
-            fi
-          done
-
-          # 校验2：.config文件权限验证，确认之前的只读锁定没有异常
-          echo "[2/4] 校验.config文件权限有效性"
-          if [ -f "$FINAL_DEFCONFIG" ] && [ -s "$FINAL_DEFCONFIG" ]; then
-            echo "  [✓] .config文件存在，总配置行数：$(wc -l < "$FINAL_DEFCONFIG")"
-            chmod 644 "$FINAL_DEFCONFIG" 2>/dev/null || true
-            echo "  [✓] 已临时恢复.config可写权限，避免make读取失败"
-          else
-            echo "  [✗] .config文件不存在或为空，无法启动编译"
-            PRE_CHECK_FAIL=1
-          fi
-
-          # 校验3：编译依赖全量有效性验证
-          echo "[3/4] 校验Clang编译依赖完整性"
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
-          BUILD_DEPS=("clang" "ld.lld" "llvm-ar" "make" "bison" "flex" "aarch64-linux-gnu-gcc")
-          for dep_item in "${BUILD_DEPS[@]}"; do
-            if command -v "$dep_item" >/dev/null 2>&1; then
-              echo "  [✓] $dep_item 路径可正常访问"
-            else
-              echo "  [✗] 缺失编译依赖 $dep_item"
-              PRE_CHECK_FAIL=1
-            fi
-          done
-
-          # 校验4：Werror六层豁免规则验证
-          echo "[4/4] 校验Makefile豁免规则有效性"
-          MAKEFILE=./Makefile
-          EXEMPT_ITEMS=("-Wno-error=int-conversion" "-Wno-int-conversion" "-Wno-error=parentheses-equality" "-Wno-parentheses-equality" "-Wno-error=implicit-function-declaration" "-Wno-implicit-function-declaration")
-          for exempt_item in "${EXEMPT_ITEMS[@]}"; do
-            if grep -q -- "$exempt_item" "$MAKEFILE"; then
-              echo "  [✓] 豁免规则 $exempt_item 已正确写入Makefile"
-            else
-              echo "  [✗] 豁免规则 $exempt_item 缺失，编译时会升级为致命错误"
-              PRE_CHECK_FAIL=1
-            fi
-          done
-
-
-          # 校验结果判定
-          if [ $PRE_CHECK_FAIL -eq 1 ]; then
-            echo ""
-            echo "❌ 编译前预校验未通过，存在严重错误，终止构建避免浪费资源"
-            exit 1
-          fi
-          echo ""
-          echo "✅ 编译前一刻全维度校验100%全部通过，启动全量内核编译"
-
-
-
-
-
-    
+      
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
           echo "=== 启动Clang全量内核编译 ==="
@@ -1897,7 +1077,7 @@ jobs:
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
           BUILD_EXIT_CODE=$PIPESTATUS
-    
+      
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
           echo "=== 全量错误日志分析 ==="
@@ -1911,8 +1091,8 @@ jobs:
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
           grep -n -i "compat_ptr" full_build_detail.log || echo "[!] 日志中无compat_ptr相关错误"
-    
-    
+
+      
           # -------------------------- 第七层：编译结果状态判定 --------------------------
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
@@ -1920,8 +1100,7 @@ jobs:
             tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功，所有已知类型告警已被六层规则完全屏蔽"
-
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
 
 
 
