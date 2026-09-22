@@ -1,0 +1,224 @@
+name: 小米6 Kernel CI（稳定增强版 · Docker 全量支持）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # =========================
+      # 1️⃣ 加载环境变量
+      # =========================
+      - name: Load config
+        run: |
+          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
+
+      # =========================
+      # 2️⃣ 安装依赖
+      # =========================
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y git make bc bison flex zip ccache \
+          libssl-dev libelf-dev wget curl python3 \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      # =========================
+      # 3️⃣ 准备工作目录
+      # =========================
+      - name: Prepare workspace
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+
+      # =========================
+      # 4️⃣ 缓存 Clang
+      # =========================
+      - name: Cache Clang
+        uses: actions/cache@v4
+        with:
+          path: kernel_workspace/clang-aosp
+          key: clang-aosp-android13
+
+      - name: Setup Clang
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d clang-aosp ]; then
+            git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
+          fi
+
+      # =========================
+      # 5️⃣ 缓存内核源码
+      # =========================
+      - name: Cache Kernel Source
+        uses: actions/cache@v4
+        with:
+          path: kernel_workspace/android-kernel
+          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}
+
+      - name: Clone kernel
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          if [ ! -d android-kernel ]; then
+            git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+          fi
+
+      # =========================
+      # 6️⃣ 清理构建缓存
+      # =========================
+      - name: Clean kernel build
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          rm -rf out
+          make mrproper || true
+
+      # =========================
+      # 7️⃣ 生成 Docker/LXC 配置（仅当开启时）
+      # =========================
+      - name: Apply Docker/LXC config
+        if: env.ENABLE_LXC_DOCKER == 'true'
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          cat > docker_config.txt <<'TXT_EOF'
+          # CONFIG_DM_REQ_CRYPT is not set
+          TXT_EOF
+
+      # =========================
+      # 8️⃣ 内核配置（使用可靠的配置合并方式）
+      # =========================
+      - name: Configure kernel
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+
+          export ARCH=arm64
+          export O=out
+
+          # 载入原始 defconfig
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+
+          # 如果存在 docker_config.txt，使用可靠方式合并（覆盖原有配置）
+          if [ -f ../docker_config.txt ]; then
+            while read -r line; do
+              # 跳过空行和纯注释，但处理 "# CONFIG_XXX is not set" 类型
+              if [ -z "$line" ]; then
+                continue
+              fi
+              if [[ "$line" =~ ^#[[:space:]]CONFIG_ ]]; then
+                # "# CONFIG_XXX is not set" 格式
+                config_name=$(echo "$line" | sed 's/^# *//;s/ *is not set//')
+                sed -i "/^${config_name}=.*$/d" out/.config
+                sed -i "/^# ${config_name} is not set$/d" out/.config
+                echo "$line" >> out/.config
+              elif [[ "$line" =~ ^# ]]; then
+                # 纯注释行，跳过
+                continue
+              else
+                # CONFIG_XXX=y 格式
+                config_name=$(echo "$line" | cut -d'=' -f1)
+                sed -i "/^${config_name}=.*$/d" out/.config
+                sed -i "/^# ${config_name} is not set$/d" out/.config
+                echo "$line" >> out/.config
+              fi
+            done < ../docker_config.txt
+          fi
+
+          # 补齐所有依赖选项
+          make O=out ARCH=arm64 olddefconfig
+
+      # =========================
+      # 9️⃣ 设置 ccache（加速编译）
+      # =========================
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          max-size: 2G
+
+      # =========================
+      # 🔟 编译内核（带日志保存）
+      # =========================
+      - name: Build kernel
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+
+          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH"
+          export KBUILD_BUILD_HOST=CI
+          export KBUILD_BUILD_USER=MI6
+
+          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
+            make -j$(nproc --all) O=out ARCH=arm64 \
+              CC="ccache clang" \
+              LLVM=1 LLVM_IAS=1 \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+          else
+            make -j$(nproc --all) O=out ARCH=arm64 \
+              CC="ccache clang" \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+          fi
+
+      # =========================
+      # 11️⃣ 打包内核
+      # =========================
+      - name: Pack kernel
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          git clone https://github.com/osm0sis/AnyKernel3
+
+          # AnyKernel 小米6设备适配
+          cd AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
+          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
+          sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=/g' anykernel.sh
+          sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
+          sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
+
+          # 移除 Galaxy Nexus 平台的 ramdisk 补丁（不适用于小米6）
+          sed -i '/init.tuna.rc/d' anykernel.sh
+          sed -i '/fstab.tuna/d' anykernel.sh
+          sed -i '/replace_string init.rc/d' anykernel.sh
+          sed -i '/insert_line init.tuna/d' anykernel.sh
+          sed -i '/patch_fstab fstab.tuna/d' anykernel.sh
+          sed -i '/append_file init.tuna/d' anykernel.sh
+          sed -i '/append_file fstab.tuna/d' anykernel.sh
+          sed -i '/bootscript/d' anykernel.sh
+          sed -i '/usbdisk/d' anykernel.sh
+          cd ..
+
+          # 复制内核镜像
+          IMAGE_FILE="${{ env.KERNEL_IMAGE_NAME }}"
+          if [ -z "$IMAGE_FILE" ]; then
+            IMAGE_FILE="Image.gz-dtb"
+          fi
+          cp android-kernel/out/arch/arm64/boot/${IMAGE_FILE} AnyKernel3/
+
+          # 清理不需要的文件
+          rm -rf AnyKernel3/.git* AnyKernel3/README.md
+          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
+
+      # =========================
+      # 12️⃣ 上传内核包
+      # =========================
+      - name: Upload kernel zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.KERNEL_ZIP_NAME }}
+          path: kernel_workspace/AnyKernel3/*
+
+      # =========================
+      # 13️⃣ 上传编译日志
+      # =========================
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-log
+          path: kernel_workspace/android-kernel/build.log
+          if-no-files-found: warn
