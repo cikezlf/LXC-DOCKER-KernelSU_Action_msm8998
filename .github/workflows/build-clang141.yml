@@ -1,4 +1,4 @@
-name: 小米6 Kernel CI（稳定增强版 · Docker 全量支持）
+name: 小米6 Kernel CI（官方内核稳定增强版 · Docker 全量支持）
 
 on:
   workflow_dispatch:
