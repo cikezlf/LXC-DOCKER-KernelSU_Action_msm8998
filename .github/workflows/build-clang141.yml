@@ -75,7 +75,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: kernel_workspace/clang-aosp
-          key: clang-aosp-android13
+          key: clang-aosp-android13-v2
 
       - name: Setup Clang
         run: |
