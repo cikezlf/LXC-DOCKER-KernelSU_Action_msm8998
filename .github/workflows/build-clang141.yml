@@ -283,37 +283,58 @@ jobs:
       # =========================
       - name: Build kernel
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
           export PATH="$CLANG_BIN:$PATH"
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
+          # 核心修复：统一使用Clang配套的LLVM工具，禁止调用系统旧版aarch64 binutils
+          export LLVM=0
+          export CC="ccache clang"
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export READELF=llvm-readelf
+          export STRIP=llvm-strip
+          export OBJSIZE=llvm-size
+          export HOSTCC=gcc
+          export HOSTAR=ar
+
+          # 关闭不兼容老内核的新特性，消除Unrecognized form警告
+          KBUILD_CFLAGS="$KBUILD_CFLAGS -mno-outline-atomics -mbranch-protection=none -fno-pac-bti -no-integrated-as"
+          export KBUILD_CFLAGS
+          export KBUILD_AFLAGS="-no-integrated-as"
+
+          echo "--- 工具链版本校验 ---"
+          clang --version | head -n1
+          ld.lld --version | head -n1
+          llvm-objdump --version | head -n1
+          echo "----------------------"
+
           if [ "$LLVM_CONFIG" = "y" ]; then
             make -j"$(nproc --all)" O=out ARCH=arm64 \
-              CC="ccache clang" \
-              LLVM=1 LLVM_IAS=1 \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
           else
             make -j"$(nproc --all)" O=out ARCH=arm64 \
-              CC="ccache clang" \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
           fi
 
-          # 【关键校验】镜像没生成就直接失败，不再往下打包
+          # 关键校验：镜像没生成就直接失败，打印真实错误上下文
           IMAGE_PATH="out/arch/arm64/boot/${KERNEL_IMAGE_NAME}"
           if [ -s "$IMAGE_PATH" ]; then
-            echo "编译成功：$IMAGE_PATH"
+            echo "✅ 编译成功：$IMAGE_PATH"
             ls -lh "$IMAGE_PATH"
           else
-            echo "::error::未生成内核镜像 $IMAGE_PATH"
-            tail -n 60 build.log
+            echo "❌ 编译失败，错误上下文如下："
+            grep -A5 -B5 "error:" build.log | tail -n80
             exit 1
           fi
+
 
       # =========================
       # 1️⃣3️⃣ 打包内核
