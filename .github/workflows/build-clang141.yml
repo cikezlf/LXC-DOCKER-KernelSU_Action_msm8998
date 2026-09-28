@@ -146,14 +146,23 @@ jobs:
           done
           grep -q '^extern YYLTYPE yylloc;$' scripts/dtc/dtc-lexer.lex.c_shipped || { echo "dtc修复失败"; exit 1; }
 
-          echo "=== 修复2：中和安卓gcc-wrapper，关闭forbidden warning ==="
+          echo "=== 修复2：彻底删除gcc-wrapper.py，完全绕开Python语法错误 ==="
           WRAPPER=scripts/gcc-wrapper.py
           if [ -f "$WRAPPER" ]; then
-            sed -i '1s|.*|#!/usr/bin/env python3|' "$WRAPPER"
-            sed -i 's/interpret_warning(line)/# interpret_warning(line)/g' "$WRAPPER"
+            # 直接删除文件，而不是修改内容，从根源避免语法错误
+            rm -f "$WRAPPER"
+            # 同步删除Makefile里对这个wrapper的引用，恢复原生CC变量
+            sed -i '/REAL_CC/d' Makefile
+            sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)gcc|g' Makefile
           fi
+          # 校验wrapper已被彻底移除
+          test ! -f "$WRAPPER" || { echo "gcc-wrapper.py 删除失败"; exit 1; }
+          grep -q "gcc-wrapper" Makefile && { echo "Makefile中仍残留wrapper引用"; exit 1; }
 
-          echo "=== 修复3：注入Clang兼容编译参数 ==="
+          echo "=== 修复3：禁用stack-protector-strong不兼容警告 ==="
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG/# CONFIG_CC_STACKPROTECTOR_STRONG/g' arch/arm64/configs/${{ env.KERNEL_CONFIG }}
+
+          echo "=== 修复4：注入Clang兼容编译参数 ==="
           FLAGS="-Wno-error=array-bounds -Wno-array-bounds -Wno-error=int-conversion -Wno-int-conversion -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-psabi -mno-outline-atomics -mbranch-protection=none -fno-pac-bti"
           for flag in $FLAGS; do
             if ! grep -q "KBUILD_CFLAGS += ${flag}" Makefile; then
@@ -161,7 +170,7 @@ jobs:
             fi
           done
 
-          echo "=== 修复4：KernelSU 4.4内核符号补丁 ==="
+          echo "=== 修复5：KernelSU 4.4内核符号补丁 ==="
           if [ "${{ env.ENABLE_KERNELSU }}" = "true" ] && [ ! -d KernelSU ]; then
             git clone https://github.com/tiann/KernelSU.git KernelSU
             git -C KernelSU checkout ${{ env.KERNELSU_TAG }}
@@ -171,7 +180,8 @@ jobs:
             grep -q "EXPORT_SYMBOL(kallsyms_lookup_name)" kernel/kallsyms.c || echo 'EXPORT_SYMBOL(kallsyms_lookup_name);' >> kernel/kallsyms.c
             sed -i 's/depends on CMA/depends on CMA || !CMA/g' KernelSU/kernel/Kconfig
           fi
-          echo "所有兼容性修复完成"
+          echo "所有兼容性修复完成，gcc-wrapper.py已彻底移除"
+
 
       # =========================
       # 8️⃣ 清理构建缓存
