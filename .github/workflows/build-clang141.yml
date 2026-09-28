@@ -301,7 +301,7 @@ jobs:
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
-          # --- 后面保留你原来的LLVM工具配置和编译命令即可 ---
+          # 核心修复：统一使用Clang配套的LLVM工具，禁止调用系统旧版aarch64 binutils
           export LLVM=0
           export CC="ccache clang"
           export LD=ld.lld
@@ -315,20 +315,22 @@ jobs:
           export HOSTCC=gcc
           export HOSTAR=ar
 
-          export KBUILD_CFLAGS="-mno-outline-atomics -mbranch-protection=none -fno-pac-bti -no-integrated-as"
+          # 追加 -Wno-array-bounds 关闭Clang对cmpxchg原子操作的误报
+          export KBUILD_CFLAGS="$KBUILD_CFLAGS -mno-outline-atomics -mbranch-protection=none -fno-pac-bti -no-integrated-as -Wno-array-bounds"
           export KBUILD_AFLAGS="-no-integrated-as"
 
           echo "--- 工具链版本校验 ---"
           clang --version | head -n1
           python --version
           ld.lld --version | head -n1
+          echo "KBUILD_CFLAGS 末尾参数: $(echo $KBUILD_CFLAGS | grep -o 'Wno-array-bounds')"
           echo "----------------------"
 
           make -j"$(nproc --all)" O=out ARCH=arm64 \
             CROSS_COMPILE="aarch64-linux-gnu-" \
             CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
 
-          # 镜像校验
+          # 关键校验：镜像没生成就直接失败，打印真实错误上下文
           IMAGE_PATH="out/arch/arm64/boot/${KERNEL_IMAGE_NAME}"
           if [ -s "$IMAGE_PATH" ]; then
             echo "✅ 编译成功：$IMAGE_PATH"
@@ -338,6 +340,7 @@ jobs:
             grep -A5 -B5 "error:" build.log | tail -n80
             exit 1
           fi
+
 
 
 
