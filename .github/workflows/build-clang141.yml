@@ -1,4 +1,4 @@
-name: 小米6内核编译CI (Docker/KernelSU支持)
+name: 小米6 Kernel CI（官方内核稳定增强版 · Docker 全量支持）
 
 on:
   workflow_dispatch:
@@ -6,111 +6,150 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
-    # 全局设置：任何命令返回非0退出码立即终止任务，防止错误扩散
+
+    # 全局以 bash -eo pipefail 执行：任一步骤（含管道）返回非 0 立即中断，杜绝带着错误往下跑
     defaults:
       run:
         shell: bash
-        options: -eo pipefail
 
     steps:
-      - name: 检出代码仓库
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 加载环境变量配置
+      # =========================
+      # 1️⃣ 加载环境变量
+      # =========================
+      - name: Load config
         run: |
-          # 加载 config.env 并过滤注释和空行
-          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
-          
-          # 核心参数合法性预检
-          echo "正在检查环境变量..."
-          test -n "$KERNEL_SOURCE" || { echo "错误: KERNEL_SOURCE 为空"; exit 1; }
-          test -n "$KERNEL_SOURCE_BRANCH" || { echo "错误: KERNEL_SOURCE_BRANCH 为空"; exit 1; }
-          test -n "$KERNEL_CONFIG" || { echo "错误: KERNEL_CONFIG 为空"; exit 1; }
-          test -n "$KERNEL_IMAGE_NAME" || { echo "错误: KERNEL_IMAGE_NAME 为空"; exit 1; }
-          echo "环境变量加载成功。"
+          sed -e '/^#/d' -e '/^$/d' config.env >> "$GITHUB_ENV"
+          . <(sed -e '/^#/d' -e '/^$/d' config.env)
 
-      - name: 安装编译依赖
+          echo "--- 关键变量校验 ---"
+          for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME; do
+            val="${!v}"
+            if [ -z "$val" ]; then
+              echo "::error::config.env 中 $v 为空，请检查"
+              exit 1
+            fi
+            echo "$v=$val"
+          done
+
+      # =========================
+      # 2️⃣ 安装依赖
+      # =========================
+      - name: Install deps
         run: |
-          sudo apt update
-          sudo apt install -y git make bc bison flex zip ccache \
-          libssl-dev libelf-dev wget curl python3 \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          
-          # 验证关键工具链是否安装成功
-          command -v aarch64-linux-gnu-gcc > /dev/null
-          command -v make > /dev/null
-          command -v flex > /dev/null
-          command -v bison > /dev/null
-          echo "依赖安装并验证通过。"
+          sudo apt-get update
+          sudo apt-get install -y git make bc bison flex zip ccache \
+            libssl-dev libelf-dev wget curl python3 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: 准备工作目录
+          for t in git make flex bison ccache zip aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc; do
+            command -v "$t" >/dev/null || { echo "::error::缺少工具 $t"; exit 1; }
+          done
+          echo "依赖安装完成并通过校验"
+
+      # =========================
+      # 3️⃣ 准备工作目录
+      # =========================
+      - name: Prepare workspace
         run: |
-          mkdir -p $GITHUB_WORKSPACE/kernel_workspace
-          test -d $GITHUB_WORKSPACE/kernel_workspace
+          mkdir -p "$GITHUB_WORKSPACE/kernel_workspace"
+          test -d "$GITHUB_WORKSPACE/kernel_workspace"
 
-      - name: 缓存 Clang 工具链
+      # =========================
+      # 4️⃣ 缓存 Clang
+      # =========================
+      - name: Cache Clang
         uses: actions/cache@v4
         with:
           path: kernel_workspace/clang-aosp
-          key: clang-aosp-android13-r450784d
+          key: clang-aosp-android13
 
-      - name: 配置 Clang 编译器
+      - name: Setup Clang
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
+          cd "$GITHUB_WORKSPACE/kernel_workspace"
           if [ ! -d clang-aosp ]; then
-            echo "正在克隆 Clang 工具链..."
             git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
           fi
-          # 验证 Clang 路径
-          CLANG_PATH="$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin"
-          test -d "$CLANG_PATH" || { echo "错误: 未找到 Clang 目录"; exit 1; }
-          echo "Clang 配置完成。"
 
-      - name: 缓存内核源码
+          # 自动定位可用的 clang 目录：优先 r450784d，否则取版本号最大的一个
+          if [ -x clang-aosp/clang-r450784d/bin/clang ]; then
+            CLANG_BIN="$PWD/clang-aosp/clang-r450784d/bin"
+          else
+            CLANG_BIN="$(ls -d "$PWD"/clang-aosp/clang-r*/bin 2>/dev/null | sort -V | tail -n1)"
+          fi
+          if [ -z "$CLANG_BIN" ] || [ ! -x "$CLANG_BIN/clang" ]; then
+            echo "::error::未找到可用的 clang 工具链"
+            exit 1
+          fi
+          "$CLANG_BIN/clang" --version
+          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+
+      # =========================
+      # 5️⃣ 缓存内核源码
+      # =========================
+      - name: Cache Kernel Source
         uses: actions/cache@v4
         with:
           path: kernel_workspace/android-kernel
-          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}-${{ hashFiles('config.env') }}
+          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}
 
-      - name: 克隆内核源码
+      - name: Clone kernel
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
+          cd "$GITHUB_WORKSPACE/kernel_workspace"
           if [ ! -d android-kernel ]; then
-            echo "正在从 $KERNEL_SOURCE 克隆分支 $KERNEL_SOURCE_BRANCH ..."
-            git clone $KERNEL_SOURCE -b $KERNEL_SOURCE_BRANCH android-kernel --depth=1
+            git clone "$KERNEL_SOURCE" -b "$KERNEL_SOURCE_BRANCH" android-kernel --depth=1
           fi
           cd android-kernel
-          git rev-parse --is-inside-work-tree
-          
-          # 【关键修复】验证 defconfig 文件是否存在，避免后续 make 报错
-          CONFIG_FILE="arch/arm64/configs/${KERNEL_CONFIG}"
-          test -f "$CONFIG_FILE" || { echo "错误: 配置文件 $CONFIG_FILE 不存在!"; ls arch/arm64/configs/; exit 1; }
-          echo "内核源码准备就绪。"
+          sed -n '1,4p' Makefile
 
-      - name: 修复 DTC 编译兼容性 (Ubuntu 22.04)
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 修复 Linux 4.4 在较新 flex/bison 版本下的 yylloc 多重定义问题
-          echo "正在应用 dtc 兼容性修复..."
-          # 确保只添加一次
-          if ! grep -q "%option nounput" scripts/dtc/dtc-lexer.l; then
-            sed -i '/^%option noyywrap/a%option nounput' scripts/dtc/dtc-lexer.l
-            echo 'int yylloc;' >> scripts/dtc/dtc-lexer.l
+          # 【核心修复 1】校验 defconfig 真实存在，避免 "Can't find default configuration"
+          if [ ! -f "arch/arm64/configs/${KERNEL_CONFIG}" ]; then
+            echo "::error::arch/arm64/configs/${KERNEL_CONFIG} 不存在，该分支实际可用的配置如下："
+            ls arch/arm64/configs/
+            exit 1
           fi
-          echo "DTC 修复应用完成。"
+          echo "配置文件 $KERNEL_CONFIG 校验通过"
 
-      - name: 清理构建环境
+      # =========================
+      # 6️⃣ 【核心修复 2】修复 GCC 11 下 dtc 的 yylloc 重复定义
+      # =========================
+      - name: Fix dtc yylloc
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          rm -rf out
-          make mrproper || true
-          test ! -d out || { echo "错误: 输出目录清理失败"; exit 1; }
+          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
 
-      - name: 生成 Docker/LXC/KernelSU 配置片段
+          # 本内核用 _shipped 预生成文件构建 dtc，因此必须改 _shipped（只改 .l / .y 是无效的）
+          for f in scripts/dtc/dtc-lexer.lex.c_shipped scripts/dtc/dtc-lexer.l; do
+            if [ -f "$f" ] && grep -q '^YYLTYPE yylloc;$' "$f"; then
+              sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$f"
+              echo "已修复：$f"
+            fi
+          done
+
+          if ! grep -q '^extern YYLTYPE yylloc;$' scripts/dtc/dtc-lexer.lex.c_shipped; then
+            echo "::error::dtc yylloc 修复未生效，请检查源码是否变化"
+            exit 1
+          fi
+          grep -n 'yylloc' scripts/dtc/dtc-lexer.lex.c_shipped | head -3
+
+      # =========================
+      # 7️⃣ 清理构建缓存
+      # =========================
+      - name: Clean kernel build
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
+          rm -rf out
+          make mrproper >/dev/null 2>&1 || true
+          test ! -d out
+
+      # =========================
+      # 8️⃣ 生成 Docker / LXC 配置片段
+      # =========================
+      - name: Apply Docker/LXC config
         if: env.ENABLE_LXC_DOCKER == 'true'
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
+          cd "$GITHUB_WORKSPACE/kernel_workspace"
           cat > docker_config.txt <<'TXT_EOF'
           CONFIG_NAMESPACES=y
           CONFIG_UTS_NS=y
@@ -139,128 +178,158 @@ jobs:
           CONFIG_NF_NAT=y
           CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
           CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
-          CONFIG_MEMCG_KMEM=y
-          CONFIG_DEBUG_BLK_CGROUP=y
-          CONFIG_BLK_DEV_THROTTLING=y
-          CONFIG_CGROUP_NET_PRIO=y
-          CONFIG_CGROUP_NET_CLASSID=y
-          CONFIG_NETFILTER_XT_TARGET_CHECKSUM=y
+          CONFIG_KPROBES=y
           CONFIG_KSU=y
           # CONFIG_KSU_DEBUG is not set
-          # CONFIG_KSU_DISABLE_MANAGER is not set
-          # CONFIG_KSU_DISABLE_POLICY is not set
           TXT_EOF
-          test -f docker_config.txt
-          echo "配置片段生成成功。"
 
-      - name: 应用 KernelSU Legacy 补丁
+          # 去掉可能混入的 Windows 回车符，避免配置项变成 "CONFIG_XXX=y\r"
+          sed -i 's/\r$//' docker_config.txt
+          test -s docker_config.txt || { echo "::error::docker_config.txt 生成失败"; exit 1; }
+          echo "配置片段共 $(wc -l < docker_config.txt) 行"
+
+      # =========================
+      # 9️⃣ 集成 KernelSU（非 GKI 老内核必须用 v0.9.5）
+      # =========================
+      - name: Integrate KernelSU
         if: env.ENABLE_KERNELSU == 'true'
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          echo "正在为非 GKI 内核应用 KernelSU legacy 补丁..."
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s legacy
-          # 验证 KernelSU 源码是否成功引入
-          test -d KernelSU || { echo "错误: 补丁应用后未找到 KernelSU 目录"; exit 1; }
-          echo "KernelSU 补丁应用成功。"
+          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
 
-      - name: 配置内核选项
+          if [ ! -d KernelSU ]; then
+            git clone https://github.com/tiann/KernelSU.git KernelSU
+          fi
+          git -C KernelSU checkout "$KERNELSU_TAG"
+
+          # 校验 tag 是否为真实存在的历史版本（legacy 这类无效 ref 会静默回落到 main，4.4 上必然失败）
+          if ! grep -q '^menu "KernelSU"' KernelSU/kernel/Kconfig; then
+            echo "::error::KERNELSU_TAG=${KERNELSU_TAG} 不是有效 tag，请改用 v0.9.5"
+            exit 1
+          fi
+
+          # 挂进内核构建体系（与官方 setup.sh 行为一致，但加入幂等与校验）
+          ln -sfn "$(realpath --relative-to=drivers KernelSU/kernel)" drivers/kernelsu
+          test -e drivers/kernelsu/Kconfig || { echo "::error::drivers/kernelsu 软链接创建失败"; exit 1; }
+
+          grep -q 'kernelsu' drivers/Makefile || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig
+
+          echo "KernelSU 集成完成：$(git -C KernelSU describe --tags --abbrev=0 2>/dev/null || echo "$KERNELSU_TAG")"
+
+      # =========================
+      # 🔟 内核配置（defconfig → 片段合并 → olddefconfig）
+      # =========================
+      - name: Configure kernel
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
+          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
           export ARCH=arm64
           export O=out
 
-          echo "加载基础 defconfig: $KERNEL_CONFIG"
-          make O=out ARCH=arm64 $KERNEL_CONFIG
-          test -f out/.config || { echo "错误: 未生成 .config 文件"; exit 1; }
+          make O=out ARCH=arm64 "$KERNEL_CONFIG"
+          test -f out/.config || { echo "::error::未生成 out/.config"; exit 1; }
 
-          # 合并 Docker/LXC/KernelSU 配置片段
           if [ -f ../docker_config.txt ]; then
-            echo "正在合并额外配置..."
             while read -r line; do
-              # 跳过空行
-              if [ -z "$line" ]; then continue; fi
-              
-              # 处理 "# CONFIG_XXX is not set"
+              if [ -z "$line" ]; then
+                continue
+              fi
               if [[ "$line" =~ ^#[[:space:]]CONFIG_ ]]; then
-                config_name=$(echo "$line" | sed 's/^# *//;s/ *is not set//')
-                sed -i "/^${config_name}=.*$/d" out/.config
-                sed -i "/^# ${config_name} is not set$/d" out/.config
+                name=$(echo "$line" | sed 's/^# *//;s/ *is not set//')
+                sed -i "/^${name}=/d" out/.config
+                sed -i "/^# ${name} is not set$/d" out/.config
                 echo "$line" >> out/.config
-              # 跳过纯注释
               elif [[ "$line" =~ ^# ]]; then
                 continue
-              # 处理 "CONFIG_XXX=y"
               else
-                config_name=$(echo "$line" | cut -d'=' -f1)
-                sed -i "/^${config_name}=.*$/d" out/.config
-                sed -i "/^# ${config_name} is not set$/d" out/.config
+                name=$(echo "$line" | cut -d'=' -f1)
+                sed -i "/^${name}=/d" out/.config
+                sed -i "/^# ${name} is not set$/d" out/.config
                 echo "$line" >> out/.config
               fi
             done < ../docker_config.txt
           fi
 
-          echo "正在运行 olddefconfig 解决依赖关系..."
           make O=out ARCH=arm64 olddefconfig
-          
-          # 最终校验配置文件
-          test -s out/.config || { echo "错误: 最终 .config 为空或缺失"; exit 1; }
-          echo "内核配置完成。"
+          test -s out/.config || { echo "::error::最终 .config 为空"; exit 1; }
 
-      - name: 配置 Ccache 加速
+          # 【关键校验】确认核心开关真的生效，避免“配置没进去却继续编译”
+          echo "--- 配置生效自检 ---"
+          for k in CONFIG_NAMESPACES CONFIG_NET_NS CONFIG_PID_NS CONFIG_UTS_NS CONFIG_IPC_NS \
+                   CONFIG_USER_NS CONFIG_CGROUPS CONFIG_MEMCG CONFIG_BLK_CGROUP CONFIG_OVERLAY_FS \
+                   CONFIG_VETH CONFIG_POSIX_MQUEUE CONFIG_KPROBES; do
+            if grep -q "^${k}=y" out/.config; then
+              echo "  [OK] ${k}=y"
+            else
+              echo "  [!!] ${k} 未生效"
+            fi
+          done
+
+          if [ "$ENABLE_KERNELSU" = "true" ]; then
+            grep -q '^CONFIG_KSU=y' out/.config || { echo "::error::CONFIG_KSU 未生效（检查 OVERLAY_FS / KPROBES 依赖）"; exit 1; }
+            echo "  [OK] CONFIG_KSU=y"
+          fi
+
+      # =========================
+      # 1️⃣1️⃣ 设置 ccache（加速编译）
+      # =========================
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           max-size: 2G
 
-      - name: 编译内核
+      # =========================
+      # 1️⃣2️⃣ 编译内核（带日志保存）
+      # =========================
+      - name: Build kernel
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
 
-          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH"
+          export PATH="$CLANG_BIN:$PATH"
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
-          echo "开始编译内核..."
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
-            make -j$(nproc --all) O=out ARCH=arm64 \
+          if [ "$LLVM_CONFIG" = "y" ]; then
+            make -j"$(nproc --all)" O=out ARCH=arm64 \
               CC="ccache clang" \
               LLVM=1 LLVM_IAS=1 \
               CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
           else
-            make -j$(nproc --all) O=out ARCH=arm64 \
+            make -j"$(nproc --all)" O=out ARCH=arm64 \
               CC="ccache clang" \
               CLANG_TRIPLE="aarch64-linux-gnu-" \
               CROSS_COMPILE="aarch64-linux-gnu-" \
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
           fi
 
-          # 关键校验：检查内核镜像是否生成
-          IMAGE_PATH="out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
+          # 【关键校验】镜像没生成就直接失败，不再往下打包
+          IMAGE_PATH="out/arch/arm64/boot/${KERNEL_IMAGE_NAME}"
           if [ -s "$IMAGE_PATH" ]; then
-            echo "编译成功: $IMAGE_PATH"
+            echo "编译成功：$IMAGE_PATH"
             ls -lh "$IMAGE_PATH"
           else
-            echo "错误: 未在 $IMAGE_PATH 找到内核镜像"
-            tail -n 50 build.log
+            echo "::error::未生成内核镜像 $IMAGE_PATH"
+            tail -n 60 build.log
             exit 1
           fi
 
-      - name: 打包 AnyKernel3 刷机包
+      # =========================
+      # 1️⃣3️⃣ 打包内核
+      # =========================
+      - name: Pack kernel
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
-          
-          # 克隆 AnyKernel3
+          cd "$GITHUB_WORKSPACE/kernel_workspace"
           if [ ! -d AnyKernel3 ]; then
             git clone https://github.com/osm0sis/AnyKernel3
           fi
           test -d AnyKernel3
 
+          # AnyKernel 小米6设备适配
           cd AnyKernel3
-          
-          # 适配小米6 (sagit)
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's!BLOCK=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!BLOCK=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
           sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
           sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
@@ -268,7 +337,7 @@ jobs:
           sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
           sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
 
-          # 清理无关补丁脚本
+          # 移除 Galaxy Nexus 平台的 ramdisk 补丁（不适用于小米6）
           sed -i '/init.tuna.rc/d' anykernel.sh
           sed -i '/fstab.tuna/d' anykernel.sh
           sed -i '/replace_string init.rc/d' anykernel.sh
@@ -279,23 +348,35 @@ jobs:
           sed -i '/bootscript/d' anykernel.sh
           sed -i '/usbdisk/d' anykernel.sh
 
+          grep -q 'device.name1=sagit' anykernel.sh || { echo "::error::AnyKernel3 适配未生效"; exit 1; }
+          cd ..
+
           # 复制内核镜像
-          cp ../android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} ./
-          test -s ${{ env.KERNEL_IMAGE_NAME }} || { echo "错误: 复制内核镜像失败"; exit 1; }
+          IMAGE_FILE="$KERNEL_IMAGE_NAME"
+          if [ -z "$IMAGE_FILE" ]; then
+            IMAGE_FILE="Image.gz-dtb"
+          fi
+          cp "android-kernel/out/arch/arm64/boot/${IMAGE_FILE}" AnyKernel3/
+          test -s "AnyKernel3/${IMAGE_FILE}" || { echo "::error::内核镜像复制失败"; exit 1; }
 
-          # 清理打包目录
-          rm -rf .git* README.md
-          rm -rf ramdisk modules patch
-          
-          echo "打包完成。"
+          # 清理不需要的文件
+          rm -rf AnyKernel3/.git* AnyKernel3/README.md
+          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
 
-      - name: 上传内核刷机包
+      # =========================
+      # 1️⃣4️⃣ 上传内核包
+      # =========================
+      - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
           path: kernel_workspace/AnyKernel3/*
+          if-no-files-found: error
 
-      - name: 上传编译日志
+      # =========================
+      # 1️⃣5️⃣ 上传编译日志
+      # =========================
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
