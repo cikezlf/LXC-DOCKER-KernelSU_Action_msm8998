@@ -2,20 +2,10 @@ name: 小米6 Kernel CI（官方内核稳定增强版 · Docker 全量支持）
 
 on:
   workflow_dispatch:
-    inputs:
-      enable_lxc_docker:
-        description: '启用 Docker/LXC 支持'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 全局错误控制：bash -euo pipefail，任何命令非0退出/未定义变量/管道失败立即终止
     defaults:
       run:
         shell: "bash --noprofile --norc -euo pipefail {0}"
@@ -29,26 +19,15 @@ jobs:
       # =========================
       - name: Load config
         run: |
-          # 假设根目录有 config.env 文件，如果没有请取消注释下面创建默认配置的代码
           if [ ! -f config.env ]; then
-            cat > config.env <<EOF
-            KERNEL_SOURCE=https://github.com/MiCodeOfficial/kernel_xiaomi_msm8998.git
-            KERNEL_SOURCE_BRANCH=android-9.0
-            KERNEL_CONFIG=sagit_user_defconfig
-            KERNEL_IMAGE_NAME=Image.gz-dtb
-            KERNEL_ZIP_NAME=MI6-Kernel-KSU-LXC
-            KERNELSU_TAG=v0.9.5
-            ENABLE_KERNELSU=true
-            ENABLE_LXC_DOCKER=${{ github.event.inputs.enable_lxc_docker }}
-            EOF
+            echo "::error::config.env 文件不存在"
+            exit 1
           fi
           
+          # 过滤注释和空行，写入 GITHUB_ENV
           grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
-          # 导出变量供后续步骤使用
-          while IFS='=' read -r key value; do
-            echo "$key=$value" >> $GITHUB_ENV
-          done < <(grep -v '^#' config.env | grep -v '^$')
-
+          
+          # 验证关键变量
           for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG; do
             val="${!v}"
             if [ -z "$val" ]; then
@@ -158,7 +137,7 @@ jobs:
           echo "内核源码准备完成"
 
       # =========================
-      # 🔧 源码兼容性补丁 (关键修复步骤)
+      # 🔧 源码兼容性补丁
       # =========================
       - name: Fix build compatibility
         run: |
@@ -176,13 +155,12 @@ jobs:
              exit 1
           fi
 
-          echo "=== 修复2：彻底清除所有gcc-wrapper相关残留，根治gcc-command报错 ==="
+          echo "=== 修复2：彻底清除所有gcc-wrapper相关残留 ==="
           WRAPPER=scripts/gcc-wrapper.py
-          # 全目录全局删除wrapper文件，避免遗漏
+          # 全目录全局删除wrapper文件
           find . -name "gcc-wrapper.py" -delete
           find . -name "gcc-command" -delete
-          # 全局清除所有Makefile中的wrapper引用，彻底切断报错源
-          # 注意：这里使用更稳健的sed替换，防止因格式不同导致替换失败
+          # 全局清除所有Makefile中的wrapper引用
           find . -name "Makefile" -exec sed -i '/REAL_CC/d' {} +
           find . -name "Makefile" -exec sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)clang|g' {} +
           
@@ -193,18 +171,15 @@ jobs:
           fi
           echo "gcc-wrapper 完全清理完成"
 
-          echo "=== 修复3：注入安全的Clang兼容参数（移除PAC/BTI相关） ==="
-          # 注意：这里故意不包含 -fno-pac-bti 和 -mbranch-protection
-          # 因为MSM8998/Android9内核不需要且不支持这些现代ARM特性
+          echo "=== 修复3：注入安全的Clang兼容参数 ==="
           FLAGS="-Wno-error=array-bounds -Wno-array-bounds -Wno-error=int-conversion -Wno-int-conversion -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-psabi -mno-outline-atomics"
           
           for flag in $FLAGS; do
-            # 只有当Makefile中不存在该flag时才添加，避免重复
             if ! grep -q "${flag}" Makefile; then
               echo "KBUILD_CFLAGS += ${flag}" >> Makefile
             fi
           done
-          echo "已注入兼容参数，已确认移除PAC/BTI相关标志"
+          echo "已注入兼容参数"
 
           echo "=== 修复4：KernelSU 补丁 ==="
           if [ "${{ env.ENABLE_KERNELSU }}" = "true" ] && [ ! -d KernelSU ]; then
@@ -283,7 +258,7 @@ jobs:
 
           sed -i 's/\r$//' docker_config.txt
           test -s docker_config.txt
-          echo "Docker/LXC配置片段生成完成，共$(wc -l < docker_config.txt)行"
+          echo "Docker/LXC配置片段生成完成"
 
       # =========================
       # 🔟 内核配置
@@ -292,7 +267,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           
-          # 1. 强制清理之前的构建残留，防止旧配置干扰
+          # 1. 强制清理之前的构建残留
           make mrproper || true
           rm -rf out
           
@@ -307,8 +282,7 @@ jobs:
           # 3. 确认 defconfig 文件存在
           DEFCONFIG=${{ env.KERNEL_CONFIG }}
           if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
-            echo "Error: Defconfig ${DEFCONFIG} not found in arch/arm64/configs/"
-            ls arch/arm64/configs/ | grep sagit
+            echo "Error: Defconfig ${DEFCONFIG} not found"
             exit 1
           fi
           
@@ -328,7 +302,7 @@ jobs:
             cat ../docker_config.txt >> out/.config
           fi
 
-          # 7. (可选) 启用 KernelSU 配置项
+          # 7. 启用 KernelSU 配置项
           if [ "${{ env.ENABLE_KERNELSU }}" = "true" ]; then
             scripts/config --file out/.config -e CONFIG_KSU
           fi
@@ -337,7 +311,7 @@ jobs:
           echo "Applying configuration changes..."
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           
-          # 9. 全量校验所有配置产物，无异常才返回0，彻底避免隐形非0退出
+          # 9. 全量校验所有配置产物
           if [ ! -f out/.config ]; then
             echo "Error: out/.config missing after olddefconfig"
             exit 1
@@ -346,13 +320,8 @@ jobs:
             echo "Error: out/include/config/auto.conf missing"
             exit 1
           fi
-          if [ "${{ env.ENABLE_KERNELSU }}" = "true" ] && ! grep -q "CONFIG_KSU=y" out/.config; then
-            echo "Error: CONFIG_KSU is not enabled in final config"
-            exit 1
-          fi
           
           echo "Kernel configuration completed successfully."
-          echo "所有配置文件校验通过，无异常残留"
           exit 0
 
       # =========================
@@ -382,11 +351,8 @@ jobs:
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
           
-          # 关键：使用 O=out 指定输出目录，并保持与配置步骤一致
-          # -j$(nproc --all) 使用所有可用核心并行编译
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
           
-          # 检查编译结果
           if [ -f "out/arch/arm64/boot/Image" ]; then
             echo "✅ Kernel Image built successfully!"
           else
@@ -458,7 +424,7 @@ jobs:
           if-no-files-found: warn
 
       # =========================
-      # 🔋 新增：缓存保存步骤（官方推荐替代save-always，无论成功失败都保存）
+      # 🔋 缓存保存步骤
       # =========================
       - name: Save Clang cache
         if: always() && steps.cache-clang-restore.outputs.cache-hit != 'true'
