@@ -16,15 +16,13 @@ jobs:
         uses: actions/checkout@v4
 
       # =========================
-      # 1️⃣ 加载环境变量（原始模板结构，增加参数校验）
+      # 1️⃣ 加载环境变量
       # =========================
       - name: Load config
         run: |
-          # 过滤注释和空行写入环境
           grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
           . <(grep -v '^#' config.env | grep -v '^$' config.env)
 
-          # 校验必填参数，空则直接终止
           for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG; do
             val="${!v}"
             if [ -z "$val" ]; then
@@ -35,7 +33,7 @@ jobs:
           done
 
       # =========================
-      # 2️⃣ 安装依赖（原始模板结构，增加Python2和依赖校验）
+      # 2️⃣ 安装依赖
       # =========================
       - name: Install deps
         run: |
@@ -44,12 +42,10 @@ jobs:
           libssl-dev libelf-dev wget curl python2 python3 \
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-          # 校验核心依赖安装成功
           for t in git make flex bison ccache zip python2 aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc; do
             command -v "$t" >/dev/null || { echo "::error::缺少工具 $t"; exit 1; }
           done
 
-          # 临时Python2软链接，不修改系统全局版本
           mkdir -p $HOME/.local/bin
           ln -sf /usr/bin/python2 $HOME/.local/bin/python
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -57,7 +53,7 @@ jobs:
           echo "依赖安装完成"
 
       # =========================
-      # 3️⃣ 准备工作目录（原始模板结构，增加目录存在校验）
+      # 3️⃣ 准备工作目录
       # =========================
       - name: Prepare workspace
         run: |
@@ -66,27 +62,28 @@ jobs:
           echo "工作目录创建完成"
 
       # =========================
-      # 4️⃣ 缓存 Clang（原始模板结构，增加缓存标识）
+      # 4️⃣ 恢复Clang缓存（替代旧版单步缓存，仅读取）
       # =========================
-      - name: Cache Clang
-        id: cache-clang
-        uses: actions/cache@v4
+      - name: Restore Clang cache
+        id: cache-clang-restore
+        uses: actions/cache/restore@v4
         with:
           path: kernel_workspace/clang-aosp
           key: clang-aosp-android13-r450784d
-          save-always: true
 
       # =========================
-      # 5️⃣ 设置Clang（原始模板结构，增加路径自动适配和校验）
+      # 5️⃣ 设置Clang
       # =========================
       - name: Setup Clang
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          if [ "${{ steps.cache-clang.outputs.cache-hit }}" != "true" ]; then
+          if [ "${{ steps.cache-clang-restore.outputs.cache-hit }}" != "true" ]; then
+            echo "未命中Clang缓存，开始下载..."
             git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
+          else
+            echo "命中Clang缓存，跳过下载"
           fi
 
-          # 自动定位clang路径
           if [ -x clang-aosp/clang-r450784d/bin/clang ]; then
             CLANG_BIN="$PWD/clang-aosp/clang-r450784d/bin"
           else
@@ -102,29 +99,30 @@ jobs:
           echo "Clang配置完成"
 
       # =========================
-      # 6️⃣ 缓存内核源码（原始模板结构，增加缓存标识）
+      # 6️⃣ 恢复内核源码缓存（替代旧版单步缓存，仅读取）
       # =========================
-      - name: Cache Kernel Source
-        id: cache-kernel
-        uses: actions/cache@v4
+      - name: Restore Kernel Source cache
+        id: cache-kernel-restore
+        uses: actions/cache/restore@v4
         with:
           path: kernel_workspace/android-kernel
           key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}
-          save-always: true
 
       # =========================
-      # 7️⃣ 克隆内核（原始模板结构，增加defconfig存在校验）
+      # 7️⃣ 克隆内核
       # =========================
       - name: Clone kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
+          if [ "${{ steps.cache-kernel-restore.outputs.cache-hit }}" != "true" ]; then
+            echo "未命中内核源码缓存，开始克隆..."
             git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
+          else
+            echo "命中内核源码缓存，跳过克隆"
           fi
           cd android-kernel
           git rev-parse --is-inside-work-tree
 
-          # 【关键修复】校验defconfig真实存在，避免找不到配置报错
           if [ ! -f "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" ]; then
             echo "::error::配置文件 arch/arm64/configs/${{ env.KERNEL_CONFIG }} 不存在！该分支实际可用配置："
             ls arch/arm64/configs/
@@ -134,7 +132,7 @@ jobs:
           echo "内核源码准备完成"
 
       # =========================
-      # 🔧 新增：源码兼容性补丁（原始模板没有，必须加才能编译通过，不改变原始步骤顺序）
+      # 🔧 源码兼容性补丁
       # =========================
       - name: Fix build compatibility
         run: |
@@ -176,7 +174,7 @@ jobs:
           echo "所有兼容性修复完成"
 
       # =========================
-      # 8️⃣ 清理构建缓存（原始模板结构，增加清理结果校验）
+      # 8️⃣ 清理构建缓存
       # =========================
       - name: Clean kernel build
         run: |
@@ -187,7 +185,7 @@ jobs:
           echo "构建目录清理完成"
 
       # =========================
-      # 9️⃣ 生成 Docker/LXC 配置（原始模板结构，补充完整配置）
+      # 9️⃣ 生成 Docker/LXC 配置
       # =========================
       - name: Apply Docker/LXC config
         if: env.ENABLE_LXC_DOCKER == 'true'
@@ -238,13 +236,12 @@ jobs:
           # CONFIG_KSU_DEBUG is not set
           TXT_EOF
 
-          # 清理Windows换行符，避免配置污染
           sed -i 's/\r$//' docker_config.txt
           test -s docker_config.txt
           echo "Docker/LXC配置片段生成完成，共$(wc -l < docker_config.txt)行"
 
       # =========================
-      # 🔟 内核配置（原始模板结构，修复合并逻辑，增加配置校验）
+      # 🔟 内核配置
       # =========================
       - name: Configure kernel
         run: |
@@ -253,11 +250,9 @@ jobs:
           export ARCH=arm64
           export O=out
 
-          # 载入原始 defconfig
           make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
           test -f out/.config
 
-          # 合并配置片段
           if [ -f ../docker_config.txt ]; then
             while read -r line; do
               if [ -z "$line" ]; then
@@ -279,11 +274,9 @@ jobs:
             done < ../docker_config.txt
           fi
 
-          # 补齐所有依赖选项
           make O=out ARCH=arm64 olddefconfig
           test -s out/.config
 
-          # 校验核心配置生效
           for k in CONFIG_NAMESPACES CONFIG_NET_NS CONFIG_PID_NS CONFIG_UTS_NS CONFIG_IPC_NS CONFIG_USER_NS CONFIG_CGROUPS CONFIG_MEMCG CONFIG_BLK_CGROUP CONFIG_OVERLAY_FS CONFIG_VETH CONFIG_SYSVIPC; do
             grep -q "^${k}=y" out/.config || { echo "::error::核心配置 $k 未生效"; exit 1; }
           done
@@ -293,7 +286,7 @@ jobs:
           echo "内核配置完成，核心选项校验通过"
 
       # =========================
-      # 1️⃣1️⃣ 设置 ccache（原始模板结构，保持不变）
+      # 1️⃣1️⃣ 设置 ccache
       # =========================
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -301,7 +294,7 @@ jobs:
           max-size: 2G
 
       # =========================
-      # 1️⃣2️⃣ 编译内核（原始模板结构，修复工具链配置，增加错误打印和产物校验）
+      # 1️⃣2️⃣ 编译内核
       # =========================
       - name: Build kernel
         run: |
@@ -311,7 +304,6 @@ jobs:
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
-          # 统一使用LLVM工具链，解决objdump警告问题
           export CC="ccache clang"
           export LD=ld.lld
           export AR=llvm-ar
@@ -341,7 +333,6 @@ jobs:
               CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
           fi
 
-          # 关键校验：镜像必须生成，否则立刻终止并打印错误
           IMAGE_PATH="out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
           if [ -s "$IMAGE_PATH" ]; then
             echo "✅ 编译成功：$IMAGE_PATH"
@@ -353,14 +344,13 @@ jobs:
           fi
 
       # =========================
-      # 1️⃣3️⃣ 打包内核（原始模板结构，增加适配校验和文件存在校验）
+      # 1️⃣3️⃣ 打包内核
       # =========================
       - name: Pack kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           git clone https://github.com/osm0sis/AnyKernel3
 
-          # AnyKernel 小米6设备适配
           cd AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
@@ -371,7 +361,6 @@ jobs:
           sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
           sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
 
-          # 移除 Galaxy Nexus 平台的 ramdisk 补丁
           sed -i '/init.tuna.rc/d' anykernel.sh
           sed -i '/fstab.tuna/d' anykernel.sh
           sed -i '/replace_string init.rc/d' anykernel.sh
@@ -382,11 +371,9 @@ jobs:
           sed -i '/bootscript/d' anykernel.sh
           sed -i '/usbdisk/d' anykernel.sh
 
-          # 校验适配结果
           grep -q 'device.name1=sagit' anykernel.sh || { echo "AnyKernel3适配失败"; exit 1; }
           cd ..
 
-          # 复制内核镜像
           IMAGE_FILE="${{ env.KERNEL_IMAGE_NAME }}"
           if [ -z "$IMAGE_FILE" ]; then
             IMAGE_FILE="Image.gz-dtb"
@@ -394,13 +381,12 @@ jobs:
           cp android-kernel/out/arch/arm64/boot/${IMAGE_FILE} AnyKernel3/
           test -s "AnyKernel3/${IMAGE_FILE}" || { echo "镜像复制失败"; exit 1; }
 
-          # 清理不需要的文件
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
           rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
           echo "刷机包打包完成"
 
       # =========================
-      # 1️⃣4️⃣ 上传内核包（原始模板结构，增加失败即错）
+      # 1️⃣4️⃣ 上传内核包
       # =========================
       - name: Upload kernel zip
         uses: actions/upload-artifact@v4
@@ -410,7 +396,7 @@ jobs:
           if-no-files-found: error
 
       # =========================
-      # 1️⃣5️⃣ 上传编译日志（原始模板结构，增加always保证失败也能看到日志）
+      # 1️⃣5️⃣ 上传编译日志
       # =========================
       - name: Upload build log
         if: always()
@@ -419,3 +405,20 @@ jobs:
           name: kernel-build-log
           path: kernel_workspace/android-kernel/build.log
           if-no-files-found: warn
+
+      # =========================
+      # 🔋 新增：缓存保存步骤（官方推荐替代save-always，无论成功失败都保存）
+      # =========================
+      - name: Save Clang cache
+        if: always() && steps.cache-clang-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: kernel_workspace/clang-aosp
+          key: clang-aosp-android13-r450784d
+
+      - name: Save Kernel Source cache
+        if: always() && steps.cache-kernel-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: kernel_workspace/android-kernel
+          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}
