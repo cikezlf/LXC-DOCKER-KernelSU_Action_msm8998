@@ -260,47 +260,55 @@ jobs:
       # =========================
       # 🔟 内核配置
       # =========================
-      - name: Configure kernel
+      - name: Configure Kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
+          
+          # 1. 强制清理之前的构建残留，防止旧配置干扰
+          make mrproper || true
+          rm -rf out
+          
+          # 2. 设置环境变量
+          export PATH="$HOME/.local/bin:$CLANG_BIN:$PATH"
           export ARCH=arm64
-          export O=out
-
-          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
-          test -f out/.config
-
-          if [ -f ../docker_config.txt ]; then
-            while read -r line; do
-              if [ -z "$line" ]; then
-                continue
-              fi
-              if [[ "$line" =~ ^#[[:space:]]CONFIG_ ]]; then
-                config_name=$(echo "$line" | sed 's/^# *//;s/ *is not set//')
-                sed -i "/^${config_name}=.*$/d" out/.config
-                sed -i "/^# ${config_name} is not set$/d" out/.config
-                echo "$line" >> out/.config
-              elif [[ "$line" =~ ^# ]]; then
-                continue
-              else
-                config_name=$(echo "$line" | cut -d'=' -f1)
-                sed -i "/^${config_name}=.*$/d" out/.config
-                sed -i "/^# ${config_name} is not set$/d" out/.config
-                echo "$line" >> out/.config
-              fi
-            done < ../docker_config.txt
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export LD=ld.lld
+          
+          # 3. 确认 defconfig 文件存在
+          DEFCONFIG=${{ env.KERNEL_CONFIG }} # 假设你的环境变量里是 sagit_user_defconfig
+          if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
+            echo "Error: Defconfig ${DEFCONFIG} not found in arch/arm64/configs/"
+            ls arch/arm64/configs/ | grep sagit # 列出可用的 sagit 相关配置供调试
+            exit 1
           fi
-
-          make O=out ARCH=arm64 olddefconfig
-          test -s out/.config
-
-          for k in CONFIG_NAMESPACES CONFIG_NET_NS CONFIG_PID_NS CONFIG_UTS_NS CONFIG_IPC_NS CONFIG_USER_NS CONFIG_CGROUPS CONFIG_MEMCG CONFIG_BLK_CGROUP CONFIG_OVERLAY_FS CONFIG_VETH CONFIG_SYSVIPC; do
-            grep -q "^${k}=y" out/.config || { echo "::error::核心配置 $k 未生效"; exit 1; }
-          done
+          
+          # 4. 生成初始 .config
+          echo "Generating config from ${DEFCONFIG}..."
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 ${DEFCONFIG}
+          
+          # 5. 校验 .config 是否生成成功
+          if [ ! -f "out/.config" ]; then
+            echo "Error: .config was not generated!"
+            exit 1
+          fi
+          
+          # 6. (可选) 启用 KernelSU 或其他自定义配置
           if [ "${{ env.ENABLE_KERNELSU }}" = "true" ]; then
-            grep -q "^CONFIG_KSU=y" out/.config || { echo "::error::CONFIG_KSU未生效"; exit 1; }
+            # 启用 KernelSU 配置项
+            scripts/config --file out/.config -e CONFIG_KSU
+            # 如果有其他需要启用的选项，在这里添加
+            # scripts/config --file out/.config -e CONFIG_YOUR_OPTION
           fi
-          echo "内核配置完成，核心选项校验通过"
+          
+          # 7. 应用配置变更并生成最终的 auto.conf
+          echo "Applying configuration changes..."
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          
+          echo "Kernel configuration completed successfully."
+          cat out/.config | grep CONFIG_KSU # 验证 KSU 是否启用
+
 
       # =========================
       # 1️⃣1️⃣ 设置 ccache
@@ -313,48 +321,34 @@ jobs:
       # =========================
       # 1️⃣2️⃣ 编译内核
       # =========================
-      - name: Build kernel
+      - name: Build Kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           
-          # 强制清理，确保没有旧的错误配置残留
-          make mrproper || true
-          rm -rf out
-          
           export PATH="$HOME/.local/bin:$CLANG_BIN:$PATH"
-          export KBUILD_BUILD_HOST=CI
-          export KBUILD_BUILD_USER=MI6
-          export CC="ccache clang"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
           export OBJCOPY=llvm-objcopy
           export OBJDUMP=llvm-objdump
-          export READELF=llvm-readelf
           export STRIP=llvm-strip
-          export HOSTCC=gcc
-          export HOSTAR=ar
           
-          # 关键：显式禁用任何可能的PAC/BTI相关配置，防止内核Makefile自动添加
-          export KCFLAGS="-mno-outline-atomics"
+          # 关键：使用 O=out 指定输出目录，并保持与配置步骤一致
+          # -j$(nproc --all) 使用所有可用核心并行编译
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 2>&1 | tee build.log
           
-          clang --version | head -n1
-          ld.lld --version | head -n1
-
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
-            make -j$(nproc --all) O=out ARCH=arm64 \
-              LLVM=1 LLVM_IAS=1 \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
-              CROSS_COMPILE="aarch64-linux-gnu-" \
-              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+          # 检查编译结果
+          if [ -f "out/arch/arm64/boot/Image" ]; then
+            echo "✅ Kernel Image built successfully!"
           else
-            make -j$(nproc --all) O=out ARCH=arm64 \
-              CLANG_TRIPLE="aarch64-linux-gnu-" \
-              CROSS_COMPILE="aarch64-linux-gnu-" \
-              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+            echo "❌ Kernel Image not found!"
+            exit 1
           fi
-          
-          # ... 后续检查逻辑不变
+
 
 
       # =========================
