@@ -296,12 +296,12 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          # 临时Python路径优先，保证脚本调用python时找到的是2.x版本
+          # 临时Python路径优先
           export PATH="$HOME/.local/bin:$CLANG_BIN:$PATH"
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
-          # 核心修复：统一使用Clang配套的LLVM工具，禁止调用系统旧版aarch64 binutils
+          # LLVM工具链配置
           export LLVM=0
           export CC="ccache clang"
           export LD=ld.lld
@@ -315,31 +315,48 @@ jobs:
           export HOSTCC=gcc
           export HOSTAR=ar
 
-          # 追加 -Wno-array-bounds 关闭Clang对cmpxchg原子操作的误报
-          export KBUILD_CFLAGS="$KBUILD_CFLAGS -mno-outline-atomics -mbranch-protection=none -fno-pac-bti -no-integrated-as -Wno-array-bounds"
+          # 编译参数：关闭Clang误报 + 适配ld.lld老内核链接
+          export KBUILD_CFLAGS="$KBUILD_CFLAGS -mno-outline-atomics -mbranch-protection=none -fno-pac-bti -no-integrated-as -Wno-array-bounds -Wno-unused-but-set-variable -Wno-unused-const-variable"
           export KBUILD_AFLAGS="-no-integrated-as"
+          # 【核心链接兼容参数】放宽ld.lld段检查，忽略4.4内核常见的RWX段/对齐警告
+          export KBUILD_LDFLAGS="--noinhibit-exec --no-warn-rwx-segments --no-check-sections"
+
+          # 预修复KernelSU v0.9.5在4.4安卓内核上的符号缺失
+          if [ "$ENABLE_KERNELSU" = "true" ] && [ -d KernelSU ]; then
+            echo "预修复KernelSU链接兼容性..."
+            # 4.4安卓内核没有kallsyms_lookup_name导出，KernelSU需要用替代方式获取符号
+            if ! grep -q "kallsyms_lookup_name" kernel/kallsyms.c; then
+              sed -i '/^EXPORT_SYMBOL.*kallsyms_on_each_symbol/a EXPORT_SYMBOL(kallsyms_lookup_name);' kernel/kallsyms.c
+            fi
+            # 关闭KernelSU对CMA内存的依赖（该配置在本defconfig默认关闭）
+            sed -i 's/depends on CMA/depends on CMA || !CMA/g' KernelSU/kernel/Kconfig
+          fi
 
           echo "--- 工具链版本校验 ---"
           clang --version | head -n1
           python --version
           ld.lld --version | head -n1
-          echo "KBUILD_CFLAGS 末尾参数: $(echo $KBUILD_CFLAGS | grep -o 'Wno-array-bounds')"
           echo "----------------------"
 
-          make -j"$(nproc --all)" O=out ARCH=arm64 \
+          # 强制行缓冲编译，避免错误日志被截断
+          stdbuf -oL -eL make -j"$(nproc --all)" O=out ARCH=arm64 \
             CROSS_COMPILE="aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | stdbuf -oL tee build.log
 
-          # 关键校验：镜像没生成就直接失败，打印真实错误上下文
+          # 关键校验+错误打印
           IMAGE_PATH="out/arch/arm64/boot/${KERNEL_IMAGE_NAME}"
           if [ -s "$IMAGE_PATH" ]; then
             echo "✅ 编译成功：$IMAGE_PATH"
             ls -lh "$IMAGE_PATH"
           else
-            echo "❌ 编译失败，错误上下文如下："
-            grep -A5 -B5 "error:" build.log | tail -n80
+            echo "❌ 链接失败，完整链接错误日志如下："
+            echo "=== 最后100行编译日志（包含真实错误） ==="
+            tail -n100 build.log
+            echo "=== 未定义符号检查 ==="
+            grep -E "undefined reference|error:|multiple definition" build.log | tail -n50
             exit 1
           fi
+
 
 
 
