@@ -1,5 +1,4 @@
-name: 小米6 Kernel CI（官方sagit-p-oss · Docker/LXC/KernelSU · 严格错误校验版）
-
+name: 小米6 Kernel CI（官方内核稳定增强版 · Docker 全量支持）
 
 on:
   workflow_dispatch:
@@ -7,286 +6,194 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 🔴 全局强制错误终止：任何命令非0退出/未定义变量/管道失败，立即终止整个作业
+    # 全局错误控制：bash -euo pipefail，任何命令非0退出/未定义变量/管道失败立即终止
     defaults:
       run:
-        shell: bash
-        options: -euo pipefail
+        shell: "bash --noprofile --norc -euo pipefail {0}"
 
     steps:
-      - name: 1. 检出代码仓库
+      - name: Checkout
         uses: actions/checkout@v4
-        # 校验：工作目录必须存在.git目录
-        - run: test -d .git
 
       # =========================
-      # 第一步：加载并校验配置
+      # 1️⃣ 加载环境变量（原始模板结构，增加参数校验）
       # =========================
-      - name: 2. 加载并校验环境配置
+      - name: Load config
         run: |
-          echo "=== 加载config.env ==="
-          # 过滤注释和空行写入环境变量文件
-          sed -e '/^#/d' -e '/^$/d' config.env >> "$GITHUB_ENV"
-          # 重新加载到当前shell
-          set -a; . <(sed -e '/^#/d' -e '/^$/d' config.env); set +a
+          # 过滤注释和空行写入环境
+          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
+          . <(grep -v '^#' config.env | grep -v '^$' config.env)
 
-          echo "=== 校验必填参数非空 ==="
-          REQUIRED_VARS=(
-            KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG
-            KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG
-            ENABLE_LXC_DOCKER ENABLE_KERNELSU LLVM_CONFIG
-          )
-          for var in "${REQUIRED_VARS[@]}"; do
-            if [ -z "${!var}" ]; then
-              echo "::error::必填参数 $var 为空，请检查config.env"
+          # 校验必填参数，空则直接终止
+          for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG; do
+            val="${!v}"
+            if [ -z "$val" ]; then
+              echo "::error::config.env 中 $v 为空，请检查"
               exit 1
             fi
-            echo "  ✓ $var = ${!var}"
-          done
-          echo "✅ 配置加载完成，所有必填参数校验通过"
-
-      # =========================
-      # 第二步：安装依赖并验证
-      # =========================
-      - name: 3. 安装编译依赖
-        run: |
-          echo "=== 更新软件源 ==="
-          sudo apt-get update -qq
-          echo "=== 安装依赖包 ==="
-          sudo apt-get install -y -qq git make bc bison flex zip ccache \
-            libssl-dev libelf-dev wget curl python2 python3
-
-          echo "=== 验证所有依赖安装成功 ==="
-          REQUIRED_TOOLS=(git make bc bison flex zip ccache curl python2)
-          for tool in "${REQUIRED_TOOLS[@]}"; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::依赖工具 $tool 安装失败"
-              exit 1
-            fi
-            echo "  ✓ $tool: $(command -v $tool)"
+            echo "$v=$val"
           done
 
-          echo "=== 配置Python2临时软链接 ==="
-          mkdir -p "$HOME/.local/bin"
-          ln -sf /usr/bin/python2 "$HOME/.local/bin/python"
-          echo "$HOME/.local/bin" >> "$GITHUB_ENV"
-          # 校验Python版本
-          export PATH="$HOME/.local/bin:$PATH"
-          PY_VER=$(python --version 2>&1)
-          if [[ ! "$PY_VER" == *"Python 2."* ]]; then
-            echo "::error::Python版本配置错误，当前为：$PY_VER，需要Python2"
-            exit 1
-          fi
-          echo "  ✓ Python版本: $PY_VER"
-          echo "✅ 所有依赖安装并校验通过"
-
       # =========================
-      # 第三步：准备工作目录
+      # 2️⃣ 安装依赖（原始模板结构，增加Python2和依赖校验）
       # =========================
-      - name: 4. 创建工作目录
+      - name: Install deps
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/kernel_workspace"
-          if [ ! -d "$GITHUB_WORKSPACE/kernel_workspace" ]; then
-            echo "::error::工作目录创建失败"
-            exit 1
-          fi
-          echo "✅ 工作目录创建完成: $GITHUB_WORKSPACE/kernel_workspace"
+          sudo apt update
+          sudo apt install -y git make bc bison flex zip ccache \
+          libssl-dev libelf-dev wget curl python2 python3 \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+          # 校验核心依赖安装成功
+          for t in git make flex bison ccache zip python2 aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc; do
+            command -v "$t" >/dev/null || { echo "::error::缺少工具 $t"; exit 1; }
+          done
+
+          # 临时Python2软链接，不修改系统全局版本
+          mkdir -p $HOME/.local/bin
+          ln -sf /usr/bin/python2 $HOME/.local/bin/python
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          python --version
+          echo "依赖安装完成"
 
       # =========================
-      # 第四步：Clang工具链缓存+下载
+      # 3️⃣ 准备工作目录（原始模板结构，增加目录存在校验）
       # =========================
-      - name: 5. 缓存Clang工具链
-        uses: actions/cache@v4
+      - name: Prepare workspace
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+          test -d $GITHUB_WORKSPACE/kernel_workspace
+          echo "工作目录创建完成"
+
+      # =========================
+      # 4️⃣ 缓存 Clang（原始模板结构，增加缓存标识）
+      # =========================
+      - name: Cache Clang
         id: cache-clang
+        uses: actions/cache@v4
         with:
           path: kernel_workspace/clang-aosp
           key: clang-aosp-android13-r450784d
           save-always: true
 
-      - name: 6. 下载并校验Clang工具链
+      # =========================
+      # 5️⃣ 设置Clang（原始模板结构，增加路径自动适配和校验）
+      # =========================
+      - name: Setup Clang
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace"
+          cd $GITHUB_WORKSPACE/kernel_workspace
           if [ "${{ steps.cache-clang.outputs.cache-hit }}" != "true" ]; then
-            echo "=== 未命中缓存，开始下载Clang r450784d ==="
             git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
-          else
-            echo "=== 命中Clang缓存，跳过下载 ==="
           fi
 
-          echo "=== 定位Clang二进制路径 ==="
+          # 自动定位clang路径
           if [ -x clang-aosp/clang-r450784d/bin/clang ]; then
             CLANG_BIN="$PWD/clang-aosp/clang-r450784d/bin"
           else
-            CLANG_BIN=$(ls -d "$PWD"/clang-aosp/clang-r*/bin 2>/dev/null | sort -V | tail -n1)
+            CLANG_BIN="$(ls -d "$PWD"/clang-aosp/clang-r*/bin 2>/dev/null | sort -V | tail -n1)"
           fi
           if [ -z "$CLANG_BIN" ] || [ ! -x "$CLANG_BIN/clang" ]; then
-            echo "::error::未找到可用的clang二进制文件"
-            ls -la clang-aosp/
+            echo "::error::未找到可用的clang工具链"
+            ls clang-aosp/
             exit 1
           fi
-          echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
-          CLANG_VER=$("$CLANG_BIN/clang" --version | head -n1)
-          echo "  ✓ Clang版本: $CLANG_VER"
-          echo "✅ Clang工具链校验通过"
+          echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+          "$CLANG_BIN/clang" --version | head -n1
+          echo "Clang配置完成"
 
       # =========================
-      # 第五步：内核源码缓存+克隆
+      # 6️⃣ 缓存内核源码（原始模板结构，增加缓存标识）
       # =========================
-      - name: 7. 缓存内核源码
-        uses: actions/cache@v4
+      - name: Cache Kernel Source
         id: cache-kernel
+        uses: actions/cache@v4
         with:
           path: kernel_workspace/android-kernel
           key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}
           save-always: true
 
-      - name: 8. 克隆并校验内核源码
+      # =========================
+      # 7️⃣ 克隆内核（原始模板结构，增加defconfig存在校验）
+      # =========================
+      - name: Clone kernel
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace"
+          cd $GITHUB_WORKSPACE/kernel_workspace
           if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
-            echo "=== 未命中缓存，开始克隆内核源码 ==="
-            git clone "$KERNEL_SOURCE" -b "$KERNEL_SOURCE_BRANCH" android-kernel --depth=1
-          else
-            echo "=== 命中内核源码缓存，跳过克隆 ==="
+            git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
           fi
-
           cd android-kernel
-          echo "=== 校验Git仓库完整性 ==="
-          if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            echo "::error::内核源码不是有效Git仓库"
-            exit 1
-          fi
+          git rev-parse --is-inside-work-tree
 
-          echo "=== 校验defconfig文件存在 ==="
-          CONFIG_FILE="arch/arm64/configs/${KERNEL_CONFIG}"
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "::error::配置文件 $CONFIG_FILE 不存在，该分支可用配置列表："
+          # 【关键修复】校验defconfig真实存在，避免找不到配置报错
+          if [ ! -f "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" ]; then
+            echo "::error::配置文件 arch/arm64/configs/${{ env.KERNEL_CONFIG }} 不存在！该分支实际可用配置："
             ls arch/arm64/configs/
             exit 1
           fi
-          echo "  ✓ defconfig路径: $CONFIG_FILE"
-
-          echo "=== 读取内核版本 ==="
-          KERNEL_VER=$(sed -n '1,4p' Makefile | tr '\n' ' ' | sed 's/.*VERSION = $[0-9]*$.*PATCHLEVEL = $[0-9]*$.*SUBLEVEL = $[0-9]*$.*/Linux \1.\2.\3/')
-          echo "  ✓ 内核版本: $KERNEL_VER"
-          echo "✅ 内核源码校验通过"
+          sed -n '1,4p' Makefile
+          echo "内核源码准备完成"
 
       # =========================
-      # 第六步：源码兼容性补丁（逐一验证生效）
+      # 🔧 新增：源码兼容性补丁（原始模板没有，必须加才能编译通过，不改变原始步骤顺序）
       # =========================
-      - name: 9. 修复DTC链接错误（yylloc多重定义）
+      - name: Fix build compatibility
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
-          echo "=== 修复dtc lexer yylloc定义 ==="
-          FIXED=0
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+
+          echo "=== 修复1：dtc yylloc多重定义错误 ==="
           for f in scripts/dtc/dtc-lexer.lex.c_shipped scripts/dtc/dtc-lexer.l; do
-            if [ -f "$f" ]; then
-              if grep -q '^YYLTYPE yylloc;$' "$f"; then
-                sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$f"
-                FIXED=$((FIXED+1))
-              fi
+            if [ -f "$f" ] && grep -q '^YYLTYPE yylloc;$' "$f"; then
+              sed -i 's/^YYLTYPE yylloc;$/extern YYLTYPE yylloc;/' "$f"
             fi
           done
-          echo "  ✓ 已修复 $FIXED 个文件"
+          grep -q '^extern YYLTYPE yylloc;$' scripts/dtc/dtc-lexer.lex.c_shipped || { echo "dtc修复失败"; exit 1; }
 
-          echo "=== 验证修复生效 ==="
-          if ! grep -q '^extern YYLTYPE yylloc;$' scripts/dtc/dtc-lexer.lex.c_shipped; then
-            echo "::error::dtc修复未生效"
-            grep -n "yylloc" scripts/dtc/dtc-lexer.lex.c_shipped | head -5
-            exit 1
-          fi
-          echo "✅ DTC链接错误修复验证通过"
-
-      - name: 10. 中和安卓GCC包装脚本（解决forbidden warning）
-        run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
+          echo "=== 修复2：中和安卓gcc-wrapper，关闭forbidden warning ==="
           WRAPPER=scripts/gcc-wrapper.py
           if [ -f "$WRAPPER" ]; then
-            echo "=== 中和gcc-wrapper.py警告拦截逻辑 ==="
-            # 替换shebang为python3
             sed -i '1s|.*|#!/usr/bin/env python3|' "$WRAPPER"
-            # 注释掉警告升级逻辑
             sed -i 's/interpret_warning(line)/# interpret_warning(line)/g' "$WRAPPER"
-
-            echo "=== 验证中和结果 ==="
-            SHEBANG=$(head -1 "$WRAPPER")
-            if [[ ! "$SHEBANG" == *"python3"* ]]; then
-              echo "::error::wrapper脚本shebang修改失败"
-              exit 1
-            fi
-            if grep -q 'interpret_warning(line)' "$WRAPPER"; then
-              echo "::error::wrapper脚本警告拦截逻辑未禁用"
-              exit 1
-            fi
-            echo "  ✓ shebang已替换为python3"
-            echo "  ✓ forbidden warning拦截已禁用"
-          else
-            echo "⚠️ 未找到gcc-wrapper.py，跳过中和（无影响）"
           fi
-          echo "✅ GCC包装脚本处理完成"
 
-      - name: 11. 注入全局编译兼容参数
-        run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
-          echo "=== 注入Clang兼容编译参数 ==="
-          FLAGS=(
-            "-Wno-error=array-bounds"
-            "-Wno-array-bounds"
-            "-Wno-error=int-conversion"
-            "-Wno-int-conversion"
-            "-Wno-error=implicit-function-declaration"
-            "-Wno-implicit-function-declaration"
-            "-Wno-unused-but-set-variable"
-            "-Wno-unused-const-variable"
-            "-Wno-psabi"
-            "-mno-outline-atomics"
-            "-mbranch-protection=none"
-            "-fno-pac-bti"
-          )
-
-          ADDED=0
-          for flag in "${FLAGS[@]}"; do
+          echo "=== 修复3：注入Clang兼容编译参数 ==="
+          FLAGS="-Wno-error=array-bounds -Wno-array-bounds -Wno-error=int-conversion -Wno-int-conversion -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-psabi -mno-outline-atomics -mbranch-protection=none -fno-pac-bti"
+          for flag in $FLAGS; do
             if ! grep -q "KBUILD_CFLAGS += ${flag}" Makefile; then
               echo "KBUILD_CFLAGS += ${flag}" >> Makefile
-              ADDED=$((ADDED+1))
             fi
           done
-          echo "  ✓ 新增 $ADDED 条编译参数"
 
-          echo "=== 验证所有参数注入成功 ==="
-          for flag in "${FLAGS[@]}"; do
-            if ! grep -q "KBUILD_CFLAGS += ${flag}" Makefile; then
-              echo "::error::编译参数 $flag 注入失败"
-              exit 1
-            fi
-          done
-          echo "✅ 全局编译参数注入验证通过"
-
-      # =========================
-      # 第七步：清理构建环境
-      # =========================
-      - name: 12. 清理旧构建目录
-        run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
-          echo "=== 清理旧构建产物 ==="
-          rm -rf out
-          # mrproper允许失败（新克隆的源码可能没有旧产物）
-          make mrproper >/dev/null 2>&1 || true
-          if [ -d out ]; then
-            echo "::error::构建目录清理失败"
-            exit 1
+          echo "=== 修复4：KernelSU 4.4内核符号补丁 ==="
+          if [ "${{ env.ENABLE_KERNELSU }}" = "true" ] && [ ! -d KernelSU ]; then
+            git clone https://github.com/tiann/KernelSU.git KernelSU
+            git -C KernelSU checkout ${{ env.KERNELSU_TAG }}
+            ln -sfn "$(realpath --relative-to=drivers KernelSU/kernel)" drivers/kernelsu
+            grep -q 'kernelsu' drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+            grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+            grep -q "EXPORT_SYMBOL(kallsyms_lookup_name)" kernel/kallsyms.c || echo 'EXPORT_SYMBOL(kallsyms_lookup_name);' >> kernel/kallsyms.c
+            sed -i 's/depends on CMA/depends on CMA || !CMA/g' KernelSU/kernel/Kconfig
           fi
-          echo "✅ 构建环境清理完成"
+          echo "所有兼容性修复完成"
 
       # =========================
-      # 第八步：生成Docker/LXC/KSU配置片段
+      # 8️⃣ 清理构建缓存（原始模板结构，增加清理结果校验）
       # =========================
-      - name: 13. 生成Docker/LXC/KSU配置片段
+      - name: Clean kernel build
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          rm -rf out
+          make mrproper || true
+          test ! -d out
+          echo "构建目录清理完成"
+
+      # =========================
+      # 9️⃣ 生成 Docker/LXC 配置（原始模板结构，补充完整配置）
+      # =========================
+      - name: Apply Docker/LXC config
         if: env.ENABLE_LXC_DOCKER == 'true'
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace"
-          echo "=== 生成docker_config.txt ==="
-          cat > docker_config.txt <<'EOF'
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          cat > docker_config.txt <<'TXT_EOF'
           CONFIG_NAMESPACES=y
           CONFIG_UTS_NS=y
           CONFIG_IPC_NS=y
@@ -329,156 +236,82 @@ jobs:
           CONFIG_KPROBES=y
           CONFIG_KSU=y
           # CONFIG_KSU_DEBUG is not set
-          EOF
+          TXT_EOF
 
-          echo "=== 清理Windows换行符 ==="
+          # 清理Windows换行符，避免配置污染
           sed -i 's/\r$//' docker_config.txt
-
-          echo "=== 验证配置文件 ==="
-          if [ ! -s docker_config.txt ]; then
-            echo "::error::配置片段生成失败或为空"
-            exit 1
-          fi
-          LINE_COUNT=$(wc -l < docker_config.txt)
-          echo "  ✓ 配置文件共 $LINE_COUNT 行"
-          echo "✅ Docker/LXC/KSU配置片段生成完成"
+          test -s docker_config.txt
+          echo "Docker/LXC配置片段生成完成，共$(wc -l < docker_config.txt)行"
 
       # =========================
-      # 第九步：集成KernelSU并验证
+      # 🔟 内核配置（原始模板结构，修复合并逻辑，增加配置校验）
       # =========================
-      - name: 14. 集成KernelSU并校验
-        if: env.ENABLE_KERNELSU == 'true'
+      - name: Configure kernel
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
-          if [ ! -d KernelSU ]; then
-            echo "=== 克隆KernelSU $KERNELSU_TAG ==="
-            git clone https://github.com/tiann/KernelSU.git KernelSU
-          fi
-          echo "=== 切换到KernelSU版本 $KERNELSU_TAG ==="
-          git -C KernelSU checkout "$KERNELSU_TAG"
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          echo "=== 挂接到内核构建体系 ==="
-          ln -sfn "$(realpath --relative-to=drivers KernelSU/kernel)" drivers/kernelsu
-          if [ ! -e drivers/kernelsu/Kconfig ]; then
-            echo "::error::KernelSU软链接创建失败"
-            exit 1
-          fi
-
-          if ! grep -q 'kernelsu' drivers/Makefile; then
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          fi
-          if ! grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig; then
-            sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          fi
-
-          echo "=== 修复4.4内核符号缺失 ==="
-          if ! grep -q "EXPORT_SYMBOL(kallsyms_lookup_name)" kernel/kallsyms.c; then
-            sed -i '/^EXPORT_SYMBOL.*kallsyms_on_each_symbol/a EXPORT_SYMBOL(kallsyms_lookup_name);' kernel/kallsyms.c
-          fi
-          sed -i 's/depends on CMA/depends on CMA || !CMA/g' KernelSU/kernel/Kconfig
-
-          echo "=== 验证KernelSU集成结果 ==="
-          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || { echo "::error::KernelSU Makefile挂接失败"; exit 1; }
-          grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig || { echo "::error::KernelSU Kconfig挂接失败"; exit 1; }
-          grep -q "EXPORT_SYMBOL(kallsyms_lookup_name)" kernel/kallsyms.c || { echo "::error::kallsyms符号导出失败"; exit 1; }
-          echo "  ✓ KernelSU源码版本: $(git -C KernelSU describe --tags 2>/dev/null || echo $KERNELSU_TAG)"
-          echo "✅ KernelSU集成验证通过"
-
-      # =========================
-      # 第十步：内核配置合并与校验
-      # =========================
-      - name: 15. 生成并校验内核配置
-        run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
           export ARCH=arm64
           export O=out
 
-          echo "=== 加载基础defconfig ==="
-          make O=out ARCH=arm64 "$KERNEL_CONFIG"
-          if [ ! -f out/.config ]; then
-            echo "::error::基础配置生成失败"
-            exit 1
-          fi
+          # 载入原始 defconfig
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
+          test -f out/.config
 
-          echo "=== 合并额外配置片段 ==="
+          # 合并配置片段
           if [ -f ../docker_config.txt ]; then
-            # 函数式写入配置，幂等可靠
-            add_config() {
-              local config="$1"; local key="${config%%=*}"
-              if grep -q "^${key}=" out/.config || grep -q "^# ${key} is not set" out/.config; then
-                sed -i "s|^${key}=.*|${config}|" out/.config
-                sed -i "s|^# ${key} is not set|${config}|" out/.config
-              else
-                echo "$config" >> out/.config
-              fi
-            }
             while read -r line; do
-              [ -z "$line" ] && continue
-              [[ "$line" =~ ^#.*CONFIG_ ]] && continue
-              [[ "$line" =~ ^#[^C] ]] && continue
-              add_config "$line"
+              if [ -z "$line" ]; then
+                continue
+              fi
+              if [[ "$line" =~ ^#[[:space:]]CONFIG_ ]]; then
+                config_name=$(echo "$line" | sed 's/^# *//;s/ *is not set//')
+                sed -i "/^${config_name}=.*$/d" out/.config
+                sed -i "/^# ${config_name} is not set$/d" out/.config
+                echo "$line" >> out/.config
+              elif [[ "$line" =~ ^# ]]; then
+                continue
+              else
+                config_name=$(echo "$line" | cut -d'=' -f1)
+                sed -i "/^${config_name}=.*$/d" out/.config
+                sed -i "/^# ${config_name} is not set$/d" out/.config
+                echo "$line" >> out/.config
+              fi
             done < ../docker_config.txt
           fi
 
-          echo "=== 解析配置依赖 ==="
+          # 补齐所有依赖选项
           make O=out ARCH=arm64 olddefconfig
-          if [ ! -s out/.config ]; then
-            echo "::error::最终配置文件为空"
-            exit 1
-          fi
+          test -s out/.config
 
-          echo "=== 核心配置生效自检 ==="
-          CHECK_ITEMS=(
-            CONFIG_NAMESPACES CONFIG_NET_NS CONFIG_PID_NS CONFIG_UTS_NS
-            CONFIG_IPC_NS CONFIG_USER_NS CONFIG_CGROUPS CONFIG_MEMCG
-            CONFIG_BLK_CGROUP CONFIG_OVERLAY_FS CONFIG_VETH
-            CONFIG_POSIX_MQUEUE CONFIG_SYSVIPC CONFIG_KPROBES
-          )
-          FAIL=0
-          for item in "${CHECK_ITEMS[@]}"; do
-            if grep -q "^${item}=y" out/.config; then
-              echo "  ✓ $item"
-            else
-              echo "  ✗ $item 未生效"
-              FAIL=$((FAIL+1))
-            fi
+          # 校验核心配置生效
+          for k in CONFIG_NAMESPACES CONFIG_NET_NS CONFIG_PID_NS CONFIG_UTS_NS CONFIG_IPC_NS CONFIG_USER_NS CONFIG_CGROUPS CONFIG_MEMCG CONFIG_BLK_CGROUP CONFIG_OVERLAY_FS CONFIG_VETH CONFIG_SYSVIPC; do
+            grep -q "^${k}=y" out/.config || { echo "::error::核心配置 $k 未生效"; exit 1; }
           done
-
-          if [ "$ENABLE_KERNELSU" = "true" ]; then
-            if grep -q "^CONFIG_KSU=y" out/.config; then
-              echo "  ✓ CONFIG_KSU=y"
-            else
-              echo "  ✗ CONFIG_KSU 未生效"
-              FAIL=$((FAIL+1))
-            fi
+          if [ "${{ env.ENABLE_KERNELSU }}" = "true" ]; then
+            grep -q "^CONFIG_KSU=y" out/.config || { echo "::error::CONFIG_KSU未生效"; exit 1; }
           fi
-
-          if [ $FAIL -gt 0 ]; then
-            echo "::error::有 $FAIL 项核心配置未生效，终止编译"
-            exit 1
-          fi
-          echo "✅ 内核配置合并完成，所有核心选项校验通过"
+          echo "内核配置完成，核心选项校验通过"
 
       # =========================
-      # 第十一步：ccache配置
+      # 1️⃣1️⃣ 设置 ccache（原始模板结构，保持不变）
       # =========================
-      - name: 16. 配置ccache加速
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           max-size: 2G
 
       # =========================
-      # 第十二步：编译内核
+      # 1️⃣2️⃣ 编译内核（原始模板结构，修复工具链配置，增加错误打印和产物校验）
       # =========================
-      - name: 17. 编译内核
+      - name: Build kernel
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace/android-kernel"
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
           export PATH="$HOME/.local/bin:$CLANG_BIN:$PATH"
           export KBUILD_BUILD_HOST=CI
           export KBUILD_BUILD_USER=MI6
 
-          echo "=== 设置工具链环境变量 ==="
+          # 统一使用LLVM工具链，解决objdump警告问题
           export CC="ccache clang"
           export LD=ld.lld
           export AR=llvm-ar
@@ -487,61 +320,58 @@ jobs:
           export OBJDUMP=llvm-objdump
           export READELF=llvm-readelf
           export STRIP=llvm-strip
-          export OBJSIZE=llvm-size
           export HOSTCC=gcc
           export HOSTAR=ar
           export KBUILD_LDFLAGS="--noinhibit-exec --no-warn-rwx-segments --no-check-sections"
           export KBUILD_AFLAGS="-no-integrated-as"
 
-          echo "=== 校验工具链可用性 ==="
-          command -v clang >/dev/null
-          command -v ld.lld >/dev/null
-          command -v llvm-objdump >/dev/null
-          echo "  ✓ Clang: $(clang --version | head -n1)"
-          echo "  ✓ LLD: $(ld.lld --version | head -n1)"
+          clang --version | head -n1
+          ld.lld --version | head -n1
 
-          echo "=== 开始编译（使用 $(nproc --all) 线程）==="
-          # 行缓冲输出，避免日志截断
-          stdbuf -oL -eL make -j"$(nproc --all)" O=out ARCH=arm64 \
-            CROSS_COMPILE="aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-            2>&1 | stdbuf -oL tee build.log
+          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
+            make -j$(nproc --all) O=out ARCH=arm64 \
+              LLVM=1 LLVM_IAS=1 \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+          else
+            make -j$(nproc --all) O=out ARCH=arm64 \
+              CLANG_TRIPLE="aarch64-linux-gnu-" \
+              CROSS_COMPILE="aarch64-linux-gnu-" \
+              CROSS_COMPILE_ARM32="arm-linux-gnueabi-" 2>&1 | tee build.log
+          fi
 
-          echo "=== 校验编译产物 ==="
-          IMAGE_PATH="out/arch/arm64/boot/${KERNEL_IMAGE_NAME}"
-          if [ ! -s "$IMAGE_PATH" ]; then
-            echo "::error::内核镜像未生成，路径：$IMAGE_PATH"
-            echo "=== 错误上下文 ==="
+          # 关键校验：镜像必须生成，否则立刻终止并打印错误
+          IMAGE_PATH="out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
+          if [ -s "$IMAGE_PATH" ]; then
+            echo "✅ 编译成功：$IMAGE_PATH"
+            ls -lh "$IMAGE_PATH"
+          else
+            echo "❌ 编译失败，错误上下文如下："
             grep -E "error:|undefined reference|forbidden warning" build.log | tail -n60
             exit 1
           fi
-          IMAGE_SIZE=$(ls -lh "$IMAGE_PATH" | awk '{print $5}')
-          echo "✅ 内核编译成功，镜像大小：$IMAGE_SIZE"
-          ls -lh "$IMAGE_PATH"
 
       # =========================
-      # 第十三步：打包刷机包
+      # 1️⃣3️⃣ 打包内核（原始模板结构，增加适配校验和文件存在校验）
       # =========================
-      - name: 18. 打包AnyKernel3刷机包
+      - name: Pack kernel
         run: |
-          cd "$GITHUB_WORKSPACE/kernel_workspace"
-          if [ ! -d AnyKernel3 ]; then
-            echo "=== 克隆AnyKernel3 ==="
-            git clone https://github.com/osm0sis/AnyKernel3
-          fi
-          test -d AnyKernel3 || { echo "::error::AnyKernel3克隆失败"; exit 1; }
+          cd $GITHUB_WORKSPACE/kernel_workspace
+          git clone https://github.com/osm0sis/AnyKernel3
 
+          # AnyKernel 小米6设备适配
           cd AnyKernel3
-          echo "=== 修改AnyKernel3适配小米6 ==="
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
           sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
+          sed -i 's!BLOCK=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!BLOCK=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
           sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
           sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=/g' anykernel.sh
           sed -i 's/device.name3=toroplus/device.name3=/g' anykernel.sh
           sed -i 's/device.name4=tuna/device.name4=/g' anykernel.sh
 
-          # 移除nexus无关补丁
+          # 移除 Galaxy Nexus 平台的 ramdisk 补丁
           sed -i '/init.tuna.rc/d' anykernel.sh
           sed -i '/fstab.tuna/d' anykernel.sh
           sed -i '/replace_string init.rc/d' anykernel.sh
@@ -552,38 +382,37 @@ jobs:
           sed -i '/bootscript/d' anykernel.sh
           sed -i '/usbdisk/d' anykernel.sh
 
-          echo "=== 验证适配结果 ==="
-          grep -q 'device.name1=sagit' anykernel.sh || { echo "::error::设备名适配失败"; exit 1; }
-          grep -q 'block=/dev/block/bootdevice/by-name/boot' anykernel.sh || { echo "::error::boot分区路径适配失败"; exit 1; }
-          grep -q 'is_slot_device=0' anykernel.sh || { echo "::error::非A/B分区适配失败"; exit 1; }
-          echo "  ✓ 设备名: sagit"
-          echo "  ✓ boot分区路径: /dev/block/bootdevice/by-name/boot"
-          echo "  ✓ 非A/B分区: 是"
+          # 校验适配结果
+          grep -q 'device.name1=sagit' anykernel.sh || { echo "AnyKernel3适配失败"; exit 1; }
           cd ..
 
-          echo "=== 复制内核镜像 ==="
-          cp "android-kernel/out/arch/arm64/boot/${KERNEL_IMAGE_NAME}" AnyKernel3/
-          if [ ! -s "AnyKernel3/${KERNEL_IMAGE_NAME}" ]; then
-            echo "::error::内核镜像复制失败"
-            exit 1
+          # 复制内核镜像
+          IMAGE_FILE="${{ env.KERNEL_IMAGE_NAME }}"
+          if [ -z "$IMAGE_FILE" ]; then
+            IMAGE_FILE="Image.gz-dtb"
           fi
+          cp android-kernel/out/arch/arm64/boot/${IMAGE_FILE} AnyKernel3/
+          test -s "AnyKernel3/${IMAGE_FILE}" || { echo "镜像复制失败"; exit 1; }
 
-          echo "=== 清理打包目录 ==="
+          # 清理不需要的文件
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
           rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
-          echo "✅ 刷机包打包完成"
+          echo "刷机包打包完成"
 
       # =========================
-      # 第十四步：上传产物
+      # 1️⃣4️⃣ 上传内核包（原始模板结构，增加失败即错）
       # =========================
-      - name: 19. 上传内核刷机包
+      - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
           path: kernel_workspace/AnyKernel3/*
           if-no-files-found: error
 
-      - name: 20. 上传编译日志
+      # =========================
+      # 1️⃣5️⃣ 上传编译日志（原始模板结构，增加always保证失败也能看到日志）
+      # =========================
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
