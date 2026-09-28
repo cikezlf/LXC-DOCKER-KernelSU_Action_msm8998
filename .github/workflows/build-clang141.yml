@@ -150,18 +150,20 @@ jobs:
              exit 1
           fi
 
-          echo "=== 修复2：彻底删除gcc-wrapper.py ==="
+          echo "=== 修复2：彻底清除所有gcc-wrapper相关残留，根治gcc-command报错 ==="
           WRAPPER=scripts/gcc-wrapper.py
-          if [ -f "$WRAPPER" ]; then
-            rm -f "$WRAPPER"
-            # 防止Makefile里还有引用导致报错
-            sed -i '/REAL_CC/d' Makefile
-            sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)gcc|g' Makefile
-          fi
-          if [ -f "$WRAPPER" ]; then
-             echo "Error: gcc-wrapper.py still exists"
+          # 全目录全局删除wrapper文件，避免遗漏
+          find . -name "gcc-wrapper.py" -delete
+          find . -name "gcc-command" -delete
+          # 全局清除所有Makefile中的wrapper引用，彻底切断报错源
+          grep -r "gcc-wrapper" --include="Makefile" ./ | awk -F: '{print $1}' | xargs -r sed -i '/REAL_CC/d'
+          grep -r "gcc-wrapper" --include="Makefile" ./ | awk -F: '{print $1}' | xargs -r sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)clang|g'
+          # 最终校验无残留
+          if grep -r "gcc-wrapper" --include="Makefile" ./; then
+             echo "Error: 仍残留gcc-wrapper引用"
              exit 1
           fi
+          echo "gcc-wrapper 完全清理完成"
 
           echo "=== 修复3：注入安全的Clang兼容参数（移除PAC/BTI相关） ==="
           # 注意：这里故意不包含 -fno-pac-bti 和 -mbranch-protection
@@ -187,8 +189,6 @@ jobs:
             sed -i 's/depends on CMA/depends on CMA || !CMA/g' KernelSU/kernel/Kconfig
           fi
           echo "所有兼容性修复完成"
-
-
 
       # =========================
       # 8️⃣ 清理构建缓存
@@ -277,10 +277,10 @@ jobs:
           export LD=ld.lld
           
           # 3. 确认 defconfig 文件存在
-          DEFCONFIG=${{ env.KERNEL_CONFIG }} # 假设你的环境变量里是 sagit_user_defconfig
+          DEFCONFIG=${{ env.KERNEL_CONFIG }}
           if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
             echo "Error: Defconfig ${DEFCONFIG} not found in arch/arm64/configs/"
-            ls arch/arm64/configs/ | grep sagit # 列出可用的 sagit 相关配置供调试
+            ls arch/arm64/configs/ | grep sagit
             exit 1
           fi
           
@@ -294,21 +294,28 @@ jobs:
             exit 1
           fi
           
-          # 6. (可选) 启用 KernelSU 或其他自定义配置
+          # 6. 合并Docker/LXC配置片段（如果开启）
+          if [ "${{ env.ENABLE_LXC_DOCKER }}" = "true" ] && [ -f ../docker_config.txt ]; then
+            cat ../docker_config.txt >> out/.config
+            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          fi
+
+          # 7. (可选) 启用 KernelSU 配置项
           if [ "${{ env.ENABLE_KERNELSU }}" = "true" ]; then
-            # 启用 KernelSU 配置项
             scripts/config --file out/.config -e CONFIG_KSU
-            # 如果有其他需要启用的选项，在这里添加
-            # scripts/config --file out/.config -e CONFIG_YOUR_OPTION
           fi
           
-          # 7. 应用配置变更并生成最终的 auto.conf
+          # 8. 应用配置变更并生成最终的 auto.conf
           echo "Applying configuration changes..."
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           
+          # 9. 全量校验所有配置产物，无异常才返回0，彻底避免隐形非0退出
+          test -f out/.config
+          test -f out/include/config/auto.conf
+          grep -q "CONFIG_KSU=y" out/.config
           echo "Kernel configuration completed successfully."
-          cat out/.config | grep CONFIG_KSU # 验证 KSU 是否启用
-
+          echo "所有配置文件校验通过，无异常残留"
+          exit 0
 
       # =========================
       # 1️⃣1️⃣ 设置 ccache
@@ -348,8 +355,6 @@ jobs:
             echo "❌ Kernel Image not found!"
             exit 1
           fi
-
-
 
       # =========================
       # 1️⃣3️⃣ 打包内核
