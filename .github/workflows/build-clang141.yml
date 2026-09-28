@@ -19,23 +19,44 @@ jobs:
       # =========================
       - name: Load config
         run: |
+          # 1. 检查 config.env 是否存在
           if [ ! -f config.env ]; then
-            echo "::error::config.env 文件不存在"
+            echo "::error::config.env 文件不存在，请创建该文件"
             exit 1
           fi
-          
-          # 过滤注释和空行，写入 GITHUB_ENV
-          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
-          
-          # 验证关键变量
-          for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG; do
-            val="${!v}"
+
+          # 2. 安全地加载环境变量到 GITHUB_ENV
+          # 使用 while read 循环逐行处理，避免 grep 可能带来的格式问题
+          while IFS='=' read -r key value; do
+            # 跳过注释和空行
+            [[ "$key" =~ ^#.*$ ]] && continue
+            [[ -z "$key" ]] && continue
+            
+            # 去除值两端可能的空白字符（可选，视你的 config.env 格式而定）
+            # value="$(echo -e "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            
+            echo "$key=$value" >> $GITHUB_ENV
+          done < config.env
+
+          # 3. 验证关键变量是否已加载
+          # 定义必须存在的关键变量列表
+          REQUIRED_VARS=("KERNEL_SOURCE" "KERNEL_SOURCE_BRANCH" "KERNEL_CONFIG" "KERNEL_IMAGE_NAME" "KERNEL_ZIP_NAME" "KERNELSU_TAG")
+
+          for var in "${REQUIRED_VARS[@]}"; do
+            # 使用 ${!var} 获取变量的值（间接引用）
+            # 如果变量未设置，${!var:-} 会返回空字符串而不是报错
+            val="${!var:-}"
+            
             if [ -z "$val" ]; then
-              echo "::error::config.env 中 $v 为空，请检查"
+              echo "::error::关键环境变量 $var 为空或未定义。请检查 config.env 文件中是否包含 $var=..."
               exit 1
+            else
+              echo "✅ $var is set."
             fi
-            echo "$v=$val"
           done
+
+          echo "所有配置加载并验证通过。"
+
 
       # =========================
       # 2️⃣ 安装依赖
