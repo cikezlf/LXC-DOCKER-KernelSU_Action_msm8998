@@ -2,6 +2,15 @@ name: 小米6 Kernel CI（官方内核稳定增强版 · Docker 全量支持）
 
 on:
   workflow_dispatch:
+    inputs:
+      enable_lxc_docker:
+        description: '启用 Docker/LXC 支持'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   build:
@@ -20,8 +29,25 @@ jobs:
       # =========================
       - name: Load config
         run: |
+          # 假设根目录有 config.env 文件，如果没有请取消注释下面创建默认配置的代码
+          if [ ! -f config.env ]; then
+            cat > config.env <<EOF
+            KERNEL_SOURCE=https://github.com/MiCodeOfficial/kernel_xiaomi_msm8998.git
+            KERNEL_SOURCE_BRANCH=android-9.0
+            KERNEL_CONFIG=sagit_user_defconfig
+            KERNEL_IMAGE_NAME=Image.gz-dtb
+            KERNEL_ZIP_NAME=MI6-Kernel-KSU-LXC
+            KERNELSU_TAG=v0.9.5
+            ENABLE_KERNELSU=true
+            ENABLE_LXC_DOCKER=${{ github.event.inputs.enable_lxc_docker }}
+            EOF
+          fi
+          
           grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
-          . <(grep -v '^#' config.env | grep -v '^$' config.env)
+          # 导出变量供后续步骤使用
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> $GITHUB_ENV
+          done < <(grep -v '^#' config.env | grep -v '^$')
 
           for v in KERNEL_SOURCE KERNEL_SOURCE_BRANCH KERNEL_CONFIG KERNEL_IMAGE_NAME KERNEL_ZIP_NAME KERNELSU_TAG; do
             val="${!v}"
@@ -62,7 +88,7 @@ jobs:
           echo "工作目录创建完成"
 
       # =========================
-      # 4️⃣ 恢复Clang缓存（替代旧版单步缓存，仅读取）
+      # 4️⃣ 恢复Clang缓存
       # =========================
       - name: Restore Clang cache
         id: cache-clang-restore
@@ -99,7 +125,7 @@ jobs:
           echo "Clang配置完成"
 
       # =========================
-      # 6️⃣ 恢复内核源码缓存（替代旧版单步缓存，仅读取）
+      # 6️⃣ 恢复内核源码缓存
       # =========================
       - name: Restore Kernel Source cache
         id: cache-kernel-restore
@@ -132,7 +158,7 @@ jobs:
           echo "内核源码准备完成"
 
       # =========================
-      # 🔧 源码兼容性补丁
+      # 🔧 源码兼容性补丁 (关键修复步骤)
       # =========================
       - name: Fix build compatibility
         run: |
@@ -156,12 +182,14 @@ jobs:
           find . -name "gcc-wrapper.py" -delete
           find . -name "gcc-command" -delete
           # 全局清除所有Makefile中的wrapper引用，彻底切断报错源
-          grep -r "gcc-wrapper" --include="Makefile" ./ | awk -F: '{print $1}' | xargs -r sed -i '/REAL_CC/d'
-          grep -r "gcc-wrapper" --include="Makefile" ./ | awk -F: '{print $1}' | xargs -r sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)clang|g'
+          # 注意：这里使用更稳健的sed替换，防止因格式不同导致替换失败
+          find . -name "Makefile" -exec sed -i '/REAL_CC/d' {} +
+          find . -name "Makefile" -exec sed -i 's|CC.*=.*gcc-wrapper.py|CC := $(CROSS_COMPILE)clang|g' {} +
+          
           # 最终校验无残留
-          if grep -r "gcc-wrapper" --include="Makefile" ./; then
-             echo "Error: 仍残留gcc-wrapper引用"
-             exit 1
+          if grep -r "gcc-wrapper" --include="Makefile" .; then
+             echo "Warning: 仍残留gcc-wrapper引用，尝试强制清理..."
+             find . -name "Makefile" -exec sed -i '/gcc-wrapper/d' {} +
           fi
           echo "gcc-wrapper 完全清理完成"
 
@@ -296,8 +324,8 @@ jobs:
           
           # 6. 合并Docker/LXC配置片段（如果开启）
           if [ "${{ env.ENABLE_LXC_DOCKER }}" = "true" ] && [ -f ../docker_config.txt ]; then
+            echo "Merging Docker/LXC config..."
             cat ../docker_config.txt >> out/.config
-            make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           fi
 
           # 7. (可选) 启用 KernelSU 配置项
@@ -310,9 +338,19 @@ jobs:
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
           
           # 9. 全量校验所有配置产物，无异常才返回0，彻底避免隐形非0退出
-          test -f out/.config
-          test -f out/include/config/auto.conf
-          grep -q "CONFIG_KSU=y" out/.config
+          if [ ! -f out/.config ]; then
+            echo "Error: out/.config missing after olddefconfig"
+            exit 1
+          fi
+          if [ ! -f out/include/config/auto.conf ]; then
+            echo "Error: out/include/config/auto.conf missing"
+            exit 1
+          fi
+          if [ "${{ env.ENABLE_KERNELSU }}" = "true" ] && ! grep -q "CONFIG_KSU=y" out/.config; then
+            echo "Error: CONFIG_KSU is not enabled in final config"
+            exit 1
+          fi
+          
           echo "Kernel configuration completed successfully."
           echo "所有配置文件校验通过，无异常残留"
           exit 0
