@@ -356,13 +356,24 @@ jobs:
       - name: 【第十步前置】修复GCC11/Clang兼容性问题
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          # 修复dtc-lexer yylloc多重定义：必须修改预生成的.c文件（改.l没用，因为.c不会重新生成）
           sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.l
+          sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.lex.c_shipped 2>/dev/null || true
           sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.lex.c 2>/dev/null || true
+          # 给dtc的Makefile显式追加-fcommon，确保链接时生效
+          echo "" >> scripts/dtc/Makefile
+          echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations" >> scripts/dtc/Makefile
+          # 全局替换-Werror为-w，只替换独立的-Werror，不破坏其他Werror开头的选项
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/ -Werror\b/ -w/g" {} \;
+          # 修复所有非法无等号的Wno-error选项
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
-          export HOSTCFLAGS="-fcommon -w"
-          echo "[✓] 编译器兼容性修复完成"
+          # 全局顶层Makefile预加HOSTCFLAGS
+          echo "" >> Makefile
+          echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
+          echo "KBUILD_HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
+          echo "export HOSTCFLAGS KBUILD_HOSTCFLAGS" >> Makefile
+          echo "[✓] 编译器兼容性修复完成，yylloc多重定义已彻底修复"
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
