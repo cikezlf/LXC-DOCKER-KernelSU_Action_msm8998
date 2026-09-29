@@ -55,7 +55,7 @@ jobs:
         id: step2
         run: |
           sudo apt-get update
-          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi python2
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python2
           sudo ln -sf /usr/bin/python2 /usr/bin/python
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
@@ -89,13 +89,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/clang-aosp
-          key: clang-aosp-android13-r450784d-v2
+          key: clang-aosp-android13-r450784d-v3
 
       - name: 【第三步】内核源码缓存
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/android-kernel
-          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v2
+          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v3
 
       - name: 【校验·第三步】缓存路径可写
         run: |
@@ -359,6 +359,9 @@ jobs:
           sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.l
           sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.lex.c 2>/dev/null || true
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/ -Werror\b/ -w/g" {} \;
+          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
+          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
+          export HOSTCFLAGS="-fcommon -w"
           echo "[✓] 编译器兼容性修复完成"
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
