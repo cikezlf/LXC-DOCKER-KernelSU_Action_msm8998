@@ -80,7 +80,7 @@ jobs:
         run: |
           echo "=== Install build dependencies ==="
           sudo apt update -y
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip unzip python2 python3-pip device-tree-compiler cpio xz-utils
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip unzip python2 python3-pip device-tree-compiler cpio xz-utils gcc-arm-linux-gnueabi libssl-dev:i386
           sudo pip3 install backports.lzma
           if [ "${{ env.SWITCH_PYTHON }}" = "true" ]; then
             echo "=== Switch default python to python2.7 ==="
@@ -112,7 +112,7 @@ jobs:
         id: kernel-cache
         with:
           path: ${{ github.workspace }}/kernel_workspace/android-kernel
-          key: kernel-sagit-p-oss-v7
+          key: kernel-sagit-p-oss-v8
 
       - name: Clone kernel if not cached
         if: steps.kernel-cache.outputs.cache-hit != 'true'
@@ -149,67 +149,32 @@ jobs:
         if: env.ENABLE_DOCKER_LXC == 'true'
         run: |
           cd ${{ github.workspace }}/kernel_workspace/android-kernel
-          echo "=== Add Docker/LXC/KVM kernel config ==="
-          cat >> out/.config << 'EOF'
-          CONFIG_NAMESPACES=y
-          CONFIG_NET_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_UTS_NS=y
-          CONFIG_USER_NS=y
-          CONFIG_CGROUPS=y
-          CONFIG_CGROUP_FREEZER=y
-          CONFIG_CGROUP_PIDS=y
-          CONFIG_CGROUP_DEVICE=y
-          CONFIG_CGROUP_CPUACCT=y
-          CONFIG_CGROUP_SCHED=y
-          CONFIG_CPUSETS=y
-          CONFIG_MEMCG=y
-          CONFIG_KEYS=y
-          CONFIG_VETH=y
-          CONFIG_BRIDGE=y
-          CONFIG_BRIDGE_NETFILTER=y
-          CONFIG_IP_NF_FILTER=y
-          CONFIG_IP_NF_TARGET_MASQUERADE=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MATCH_IPVS=y
-          CONFIG_IP_NF_NAT=y
-          CONFIG_NF_NAT=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_OVERLAY_FS_REDIRECT_DIR=y
-          CONFIG_OVERLAY_FS_INDEX=y
-          CONFIG_NETFILTER=y
-          CONFIG_NF_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MARK=y
-          CONFIG_IP_VS=y
-          CONFIG_IP_VS_PROTO_TCP=y
-          CONFIG_IP_VS_PROTO_UDP=y
-          CONFIG_IP_VS_RR=y
-          CONFIG_NET_CLS_CGROUP=y
-          CONFIG_BPF_SYSCALL=y
-          CONFIG_BPF_JIT=y
-          CONFIG_SECCOMP=y
-          CONFIG_SECCOMP_FILTER=y
-          CONFIG_CAPABILITIES=y
-          CONFIG_FHANDLE=y
-          CONFIG_EVENTFD=y
-          CONFIG_EPOLL=y
-          CONFIG_UNIX_DIAG=y
-          CONFIG_INET_DIAG=y
-          CONFIG_INET_UDP_DIAG=y
-          CONFIG_PACKET_DIAG=y
-          CONFIG_NETLINK_DIAG=y
-          CONFIG_SIGNALFD=y
-          CONFIG_TIMERFD=y
-          CONFIG_MODULE_SIG=n
-          CONFIG_MODULE_SIG_FORCE=n
-          CONFIG_SYSTEM_TRUSTED_KEYRING=n
-          CONFIG_CC_STACKPROTECTOR_REGULAR=y
-          EOF
-          sed -i '/^CONFIG_CC_STACKPROTECTOR_STRONG=y/d' out/.config
+          echo "=== Add Docker/LXC kernel config ==="
+          CONFIGS=(
+            "CONFIG_NAMESPACES=y" "CONFIG_NET_NS=y" "CONFIG_PID_NS=y"
+            "CONFIG_IPC_NS=y" "CONFIG_UTS_NS=y" "CONFIG_USER_NS=y"
+            "CONFIG_CGROUPS=y" "CONFIG_CGROUP_FREEZER=y" "CONFIG_CGROUP_PIDS=y"
+            "CONFIG_CGROUP_DEVICE=y" "CONFIG_CGROUP_CPUACCT=y" "CONFIG_CGROUP_SCHED=y"
+            "CONFIG_CPUSETS=y" "CONFIG_MEMCG=y" "CONFIG_KEYS=y"
+            "CONFIG_VETH=y" "CONFIG_BRIDGE=y" "CONFIG_BRIDGE_NETFILTER=y"
+            "CONFIG_IP_NF_FILTER=y" "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
+            "CONFIG_NETFILTER_XT_MATCH_IPVS=y" "CONFIG_IP_NF_NAT=y" "CONFIG_NF_NAT=y"
+            "CONFIG_POSIX_MQUEUE=y" "CONFIG_OVERLAY_FS=y" "CONFIG_OVERLAY_FS_REDIRECT_DIR=y"
+            "CONFIG_OVERLAY_FS_INDEX=y" "CONFIG_NETFILTER=y" "CONFIG_NF_CONNTRACK=y"
+            "CONFIG_NETFILTER_XT_MARK=y" "CONFIG_IP_VS=y" "CONFIG_IP_VS_PROTO_TCP=y"
+            "CONFIG_IP_VS_PROTO_UDP=y" "CONFIG_IP_VS_RR=y" "CONFIG_NET_CLS_CGROUP=y"
+            "CONFIG_BPF_SYSCALL=y" "CONFIG_BPF_JIT=y" "CONFIG_SECCOMP=y"
+            "CONFIG_SECCOMP_FILTER=y" "CONFIG_CAPABILITIES=y" "CONFIG_FHANDLE=y"
+            "CONFIG_EVENTFD=y" "CONFIG_EPOLL=y" "CONFIG_UNIX_DIAG=y"
+            "CONFIG_INET_DIAG=y" "CONFIG_INET_UDP_DIAG=y" "CONFIG_PACKET_DIAG=y"
+            "CONFIG_NETLINK_DIAG=y" "CONFIG_SIGNALFD=y" "CONFIG_TIMERFD=y"
+            "CONFIG_MODULE_SIG=n" "CONFIG_CC_STACKPROTECTOR_REGULAR=y"
+          )
+          for cfg in "${CONFIGS[@]}"; do echo "$cfg" >> out/.config; done
+          echo "# CONFIG_MODULE_SIG_FORCE is not set" >> out/.config
           echo "# CONFIG_CC_STACKPROTECTOR_STRONG is not set" >> out/.config
+          sed -i '/^CONFIG_CC_STACKPROTECTOR_STRONG=y/d' out/.config
           make O=out ARCH=arm64 olddefconfig
           echo "[OK] Docker/LXC config added"
 
@@ -222,14 +187,15 @@ jobs:
             echo "[OK] Patched dtc-lexer yylloc"
           fi
           for makefile in $(find . -type f \( -name "Makefile" -o -name "Kbuild" \)); do
-            sed -i 's/-Werror/-Wno-error/g' $makefile
+            sed -i 's/ -Werror\b/ -w/g' $makefile
+            sed -i 's/^KBUILD_CFLAGS += -Werror$/KBUILD_CFLAGS += -w/g' $makefile
           done
-          echo "[OK] Replaced all -Werror with -Wno-error"
+          echo "[OK] Replaced all -Werror with -w (will not break -Werror-implicit-function-declaration)"
           sed -i 's/^HOSTCFLAGS\s*=/HOSTCFLAGS = -w -fcommon -Wno-deprecated-declarations/g' Makefile
           echo "[OK] Patched HOSTCFLAGS"
-          for dir in drivers/staging/android drivers/media/platform/msm/camera_v2 drivers/firmware/qcom security/apparmor net/wireless; do
+          for dir in drivers/staging/android drivers/media/platform/msm/camera_v2 drivers/firmware/qcom security/apparmor net/wireless drivers/kernelsu; do
             if [ -f $dir/Makefile ]; then
-              echo "ccflags-y += -w" >> $dir/Makefile
+              grep -q "ccflags-y += -w" $dir/Makefile || echo "ccflags-y += -w" >> $dir/Makefile
             fi
           done
           echo "[OK] Added -w to problematic driver Makefiles"
@@ -240,6 +206,7 @@ jobs:
           CLANG_PATH=${{ github.workspace }}/kernel_workspace/clang/bin
           echo "=== Compiler version ==="
           $CLANG_PATH/clang --version | head -1
+          gcc --version | head -1
           echo "=== Starting kernel build ==="
           export PATH=$CLANG_PATH:$PATH
           set +euo pipefail
@@ -264,9 +231,10 @@ jobs:
           echo "=== Build exit code: ${BUILD_EXIT} ==="
           if [ ${BUILD_EXIT} -ne 0 ]; then
             echo "❌ BUILD FAILED"
-            grep -iE "error:|undefined reference|multiple definition|fatal error|Stop\.|\*\*\*" ../build.log | tail -80
-            echo "=== Last 80 lines of log ==="
-            tail -80 ../build.log
+            echo "=== Error lines ==="
+            grep -iE "error:|undefined reference|multiple definition|fatal error|Stop\.|\*\*\*" ../build.log | grep -v "may conflict with" | tail -60
+            echo "=== Last 60 lines of log ==="
+            tail -60 ../build.log
             exit ${BUILD_EXIT}
           else
             echo "✅ BUILD SUCCESS"
@@ -288,21 +256,19 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cd AnyKernel3
           rm -rf zImage *-dtb* *.img dtb* *.zip
-          cat > anykernel.sh << 'AKEOF'
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          device.name1=sagit
-          device.name2=MCE16
-          device.name3=MCT1
-          block=/dev/block/bootdevice/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-          . tools/ak3-core.sh;
-          dump_boot;
-          write_boot;
-          AKEOF
+          echo 'do.devicecheck=1' > anykernel.sh
+          echo 'do.modules=0' >> anykernel.sh
+          echo 'do.systemless=1' >> anykernel.sh
+          echo 'do.cleanup=1' >> anykernel.sh
+          echo 'device.name1=sagit' >> anykernel.sh
+          echo 'device.name2=MCE16' >> anykernel.sh
+          echo 'device.name3=MCT1' >> anykernel.sh
+          echo 'block=/dev/block/bootdevice/by-name/boot;' >> anykernel.sh
+          echo 'is_slot_device=0;' >> anykernel.sh
+          echo 'ramdisk_compression=auto;' >> anykernel.sh
+          echo '. tools/ak3-core.sh;' >> anykernel.sh
+          echo 'dump_boot;' >> anykernel.sh
+          echo 'write_boot;' >> anykernel.sh
           echo "[OK] AnyKernel3 configured for Mi 6"
 
       - name: Package flashable zip
@@ -330,7 +296,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kernel-build-v17
+          name: kernel-build-v18
           path: |
             ${{ github.workspace }}/kernel_workspace/*.zip
             ${{ github.workspace }}/kernel_workspace/build.log
