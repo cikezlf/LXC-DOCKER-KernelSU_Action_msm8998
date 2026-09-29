@@ -585,11 +585,6 @@ jobs:
           # 自旋锁头文件回滚完成标识输出
           echo "[✓] 第四层Clang兼容适配：spinlock.h头文件架构分支回滚操作已完成"
           
-          # 给高通msm摄像头驱动目录全局加-w，关闭所有警告避免编译终止
-          echo "ccflags-y += -w -Wno-error" >> drivers/media/platform/msm/Makefile
-          echo "ccflags-y += -w -Wno-error" >> drivers/media/Makefile
-          echo "[✓] media平台驱动目录告警豁免规则已写入"
-          
           echo ""
           echo "=== 重新生成内核配置（同步所有Clang兼容配置项） ==="
 
@@ -775,7 +770,10 @@ jobs:
           echo "KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-implicit-function-declaration" >> Makefile
           echo "KBUILD_CFLAGS   += -w" >> Makefile
-          echo "[✓] 所有告警豁免规则写入完成"
+          # 全局递归应用-w到所有子目录，彻底解决子目录警告当错误终止
+          echo "subdir-ccflags-y += -w -Wno-error" >> Makefile
+          echo "export HOSTCFLAGS=-fcommon -w -Wno-deprecated-declarations" >> Makefile
+          echo "[✓] 所有告警豁免规则写入完成，含全局递归子目录豁免"
 
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
@@ -865,4 +863,3 @@ jobs:
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
           path: kernel_workspace/AnyKernel3/*
-
