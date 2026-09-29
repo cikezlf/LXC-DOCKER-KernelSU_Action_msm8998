@@ -1,4 +1,4 @@
-name: 小米6 Kernel CI（Docker + LXC + KernelSU 全量支持修复版）
+name: 小米6 (sagit) 内核编译 - KernelSU + Docker/LXC v3
 
 on:
   workflow_dispatch:
@@ -8,592 +8,203 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout 仓库
         uses: actions/checkout@v4
 
-      # =========================
-      # 1️⃣ 加载环境变量
-      # =========================
-      - name: Load config
-        run: |
-          grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
+      - name: 加载配置 config.env
+        run: grep -v '^#' config.env | grep -v '^$' >> $GITHUB_ENV
 
-      # =========================
-      # 2️⃣ 安装编译依赖（含旧内核兼容补丁所需）
-      # =========================
-      - name: Install deps
+      - name: 安装系统依赖
         run: |
           sudo apt update
           sudo apt install -y git make bc bison flex zip ccache \
-          libssl-dev libelf-dev wget curl python3 python2 \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          device-tree-compiler libstdc++-10-dev \
-          build-essential libncurses5-dev \
-          xz-utils cpio unzip
+            libssl-dev libelf-dev libncurses5-dev wget curl \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            python2 python3 device-tree-compiler cpio xz-utils lz4
+          if [ "${{ env.SWITCH_PYTHON }}" = "true" ]; then
+            sudo ln -sf /usr/bin/python2 /usr/bin/python
+          fi
+          python --version
 
-          # 设置 python2 为可选调用
-          sudo ln -sf /usr/bin/python2 /usr/bin/python2.7 || true
-
-      # =========================
-      # 3️⃣ 准备工作目录
-      # =========================
-      - name: Prepare workspace
+      - name: 准备工作目录 + 写入脚本/配置
         run: |
-          mkdir -p $GITHUB_WORKSPACE/kernel_workspace
+          mkdir -p $GITHUB_WORKSPACE/kernel_workspace/scripts
+          python3 -c "import base64; open('$GITHUB_WORKSPACE/kernel_workspace/scripts/patch_kernel.sh','wb').write(base64.b64decode('IyEvYmluL2Jhc2gKc2V0IC1lCktFUk5FTF9ESVI9IiQxIgpjZCAiJEtFUk5FTF9ESVIiCgplY2hvICI+Pj4gW+ihpeS4gTFdIOWFqOWxgOemgeeUqCAtV2Vycm9y77yM5Yqg5YWlIC1mY29tbW9uIgpzZWQgLWkgJ3N8XktCVUlMRF9DRkxBR1MgICA6PSAtV2FsbCAtV3VuZGVmIC1Xc3RyaWN0LXByb3RvdHlwZXMgLVduby10cmlncmFwaHN8S0JVSUxEX0NGTEFHUyAgIDo9IC13IC1mY29tbW9ufCcgTWFrZWZpbGUgfHwgdHJ1ZQpzZWQgLWkgJ3N8XktCVUlMRF9DRkxBR1MgICArPSAtV2Vycm9yPWltcGxpY2l0LWZ1bmN0aW9uLWRlY2xhcmF0aW9ufEtCVUlMRF9DRkxBR1MgICArPSAtV25vLWltcGxpY2l0LWZ1bmN0aW9uLWRlY2xhcmF0aW9ufCcgTWFrZWZpbGUgfHwgdHJ1ZQpmaW5kIC4gLXR5cGUgZiBcKCAtbmFtZSAiTWFrZWZpbGUiIC1vIC1uYW1lICJLYnVpbGQiIC1vIC1uYW1lICIqLm1rIiBcKSAtZXhlYyBzZWQgLWkgJ3MvLVdlcnJvci8tV25vLWVycm9yL2cnIHt9IFw7IDI+L2Rldi9udWxsIHx8IHRydWUKY2F0ID4+IE1ha2VmaWxlIDw8ICdNS0VPRicKS0JVSUxEX0NGTEFHUyArPSAtV25vLWFycmF5LWJvdW5kcyAtV25vLXN0cmluZ29wLW92ZXJmbG93IC1Xbm8tc3RyaW5nb3Atb3ZlcnJlYWQgLVduby16ZXJvLWxlbmd0aC1ib3VuZHMgLVduby1tYXliZS11bmluaXRpYWxpemVkIC1Xbm8tdW51c2VkLXZhcmlhYmxlIC1Xbm8tdW51c2VkLXZhbHVlIC1Xbm8taW1wbGljaXQtZnVuY3Rpb24tZGVjbGFyYXRpb24gLVduby11bnVzZWQtYnV0LXNldC12YXJpYWJsZSAtV25vLXR5cGUtbGltaXRzIC1mY29tbW9uCktCVUlMRF9IT1NUQ0ZMQUdTICs9IC1Xbm8tYXJyYXktYm91bmRzIC1Xbm8tc3RyaW5nb3Atb3ZlcmZsb3cgLWZjb21tb24KS0JVSUxEX0hPU1RDWFhGTEFHUyArPSAtZmNvbW1vbgpNS0VPRgoKZWNobyAiPj4+IFvooaXkuIEyXSDkv67lpI0gZHRjLWxleGVyIHl5bGxvYy95eWx2YWwg5aSa6YeN5a6a5LmJIgpmb3IgZiBpbiBzY3JpcHRzL2R0Yy9kdGMtbGV4ZXIubGV4LmMgc2NyaXB0cy9kdGMvZHRjLWxleGVyLmxleC5jX3NoaXBwZWQgc2NyaXB0cy9kdGMvZHRjLWxleGVyLmw7IGRvCiAgaWYgWyAtZiAiJGYiIF07IHRoZW4KICAgIHNlZCAtaSAncy9eWVlMVFlQRSB5eWxsb2M7JC9leHRlcm4gWVlMVFlQRSB5eWxsb2M7LycgIiRmIgogICAgc2VkIC1pICdzL15ZWVNUWVBFIHl5bHZhbDskL2V4dGVybiBZWVNUWVBFIHl5bHZhbDsvJyAiJGYiCiAgZmkKZG9uZQppZiBbIC1mIHNjcmlwdHMvZHRjL01ha2VmaWxlIF07IHRoZW4KICBlY2hvICdIT1NUQ0ZMQUdTX2R0Yy1sZXhlci5sZXgubyArPSAtZmNvbW1vbicgPj4gc2NyaXB0cy9kdGMvTWFrZWZpbGUKICBlY2hvICdIT1NUQ0ZMQUdTX2R0Yy1wYXJzZXIudGFiLm8gKz0gLWZjb21tb24nID4+IHNjcmlwdHMvZHRjL01ha2VmaWxlCmZpCgplY2hvICI+Pj4gW+ihpeS4gTNdIOemgeeUqCBnY2Mtd3JhcHBlci5weSDorablkYrovazplJnor68iCmlmIFsgLWYgc2NyaXB0cy9nY2Mtd3JhcHBlci5weSBdOyB0aGVuCiAgc2VkIC1pICdzL2ludGVycHJldF93YXJuaW5nKGxpbmUpLyNpbnRlcnByZXRfd2FybmluZyhsaW5lKS9nJyBzY3JpcHRzL2djYy13cmFwcGVyLnB5CmZpCgplY2hvICI+Pj4gW+ihpeS4gTRdIFB5dGhvbiBzaGViYW5nIC0+IHB5dGhvbjIiCmZpbmQgc2NyaXB0cyAtbmFtZSAiKi5weSIgLWV4ZWMgc2VkIC1pICdzfCMhL3Vzci9iaW4vZW52IHB5dGhvbiR8IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMnxnJyB7fSBcOyAyPi9kZXYvbnVsbCB8fCB0cnVlCmZpbmQgc2NyaXB0cyAtbmFtZSAiKi5weSIgLWV4ZWMgc2VkIC1pICdzfCMhL3Vzci9iaW4vcHl0aG9uJHwjIS91c3IvYmluL3B5dGhvbjJ8Zycge30gXDsgMj4vZGV2L251bGwgfHwgdHJ1ZQoKZWNobyAiPj4+IFvooaXkuIE1XSBxY2FjbGQtMy4wIFdpRmkg6amx5Yqo5YqgIC13IgppZiBbIC1kIGRyaXZlcnMvc3RhZ2luZy9xY2FjbGQtMy4wIF0gJiYgWyAtZiBkcml2ZXJzL3N0YWdpbmcvcWNhY2xkLTMuMC9NYWtlZmlsZSBdOyB0aGVuCiAgZWNobyAiY2NmbGFncy15ICs9IC13IiA+PiBkcml2ZXJzL3N0YWdpbmcvcWNhY2xkLTMuMC9NYWtlZmlsZQpmaQoKZWNobyAiPj4+IOaJgOaciea6kOeggeihpeS4geW3suW6lOeUqOWujOaIkCIK'))"
+          python3 -c "import base64; open('$GITHUB_WORKSPACE/kernel_workspace/scripts/integrate_ksu.sh','wb').write(base64.b64decode('IyEvYmluL2Jhc2gKc2V0IC1lCktFUk5FTF9ESVI9IiQxIgpLU1VfVEFHPSIkMiIKY2QgIiRLRVJORUxfRElSIgoKZWNobyAiPj4+IOmbhuaIkCBLZXJuZWxTVSDniYjmnKw6ICRLU1VfVEFHIgpjdXJsIC1MU3MgImh0dHBzOi8vcmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbS90aWFubi9LZXJuZWxTVS9tYWluL2tlcm5lbC9zZXR1cC5zaCIgLW8ga3N1X3NldHVwLnNoCmNobW9kICt4IGtzdV9zZXR1cC5zaApiYXNoIGtzdV9zZXR1cC5zaCAiJEtTVV9UQUciCgppZiBbICEgLWQgZHJpdmVycy9rZXJuZWxzdSBdOyB0aGVuCiAgZWNobyAiPj4+IEVSUk9SOiBLZXJuZWxTVSDpm4bmiJDlpLHotKXvvIxkcml2ZXJzL2tlcm5lbHN1IOebruW9leS4jeWtmOWcqCIKICBleGl0IDEKZmkKZWNobyAiPj4+IEtlcm5lbFNVIGRyaXZlcnMva2VybmVsc3Ug5bey5bCx5L2NIgoKcHl0aG9uMyAtIDw8ICdQWUVPRicKaW1wb3J0IHJlCnBhdGggPSAiZnMvZXhlYy5jIgp3aXRoIG9wZW4ocGF0aCwgInIiKSBhcyBmOgogICAgc3JjID0gZi5yZWFkKCkKCmlmICJrc3VfaGFuZGxlX2V4ZWN2ZWF0IiBpbiBzcmM6CiAgICBwcmludCgiPj4+IGV4ZWN2ZSDpkqnlrZDlt7LlrZjlnKjvvIzot7Pov4ciKQplbHNlOgogICAgZGVjbF9ibG9jayA9ICcjaWZkZWYgQ09ORklHX0tTVVxuJyBcCiAgICAgICAgICAgICAgICAgJ2V4dGVybiBib29sIGtzdV9leGVjdmVhdF9ob29rIF9fcmVhZF9tb3N0bHk7XG4nIFwKICAgICAgICAgICAgICAgICAnZXh0ZXJuIGludCBrc3VfaGFuZGxlX2V4ZWN2ZWF0KGludCAqZmQsIHN0cnVjdCBmaWxlbmFtZSAqKmZpbGVuYW1lX3B0ciwgdm9pZCAqYXJndixcbicgXAogICAgICAgICAgICAgICAgICcgICAgICAgICAgICAgICAgICAgICAgICAgdm9pZCAqZW52cCwgaW50ICpmbGFncyk7XG4nIFwKICAgICAgICAgICAgICAgICAnZXh0ZXJuIGludCBrc3VfaGFuZGxlX2V4ZWN2ZWF0X3N1Y29tcGF0KGludCAqZmQsIHN0cnVjdCBmaWxlbmFtZSAqKmZpbGVuYW1lX3B0cixcbicgXAogICAgICAgICAgICAgICAgICcgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgdm9pZCAqYXJndiwgdm9pZCAqZW52cCwgaW50ICpmbGFncyk7XG4nIFwKICAgICAgICAgICAgICAgICAnI2VuZGlmXG5cbicKICAgIG1hcmtlciA9ICJTWVNDQUxMX0RFRklORTMoZXhlY3ZlIgogICAgaWR4ID0gc3JjLmZpbmQobWFya2VyKQogICAgaWYgaWR4ID49IDA6CiAgICAgICAgbGluZV9zdGFydCA9IHNyYy5yZmluZCgiXG4iLCAwLCBpZHgpICsgMQogICAgICAgIHNyYyA9IHNyY1s6bGluZV9zdGFydF0gKyBkZWNsX2Jsb2NrICsgc3JjW2xpbmVfc3RhcnQ6XQogICAgICAgIHByaW50KCI+Pj4gZXh0ZXJuIOWjsOaYjuW3suaPkuWFpSBmcy9leGVjLmMiKQogICAgZWxzZToKICAgICAgICBwcmludCgiISEhIFdBUk5JTkc6IOacquaJvuWIsCBTWVNDQUxMX0RFRklORTMoZXhlY3Zl77yMZXh0ZXJuIOWjsOaYjuaPkuWFpeWksei0pSIpCgogICAgaG9va19ib2R5ID0gJ1xuI2lmZGVmIENPTkZJR19LU1VcbicgXAogICAgICAgICAgICAgICAgJ1x0aWYgKHVubGlrZWx5KGtzdV9leGVjdmVhdF9ob29rKSlcbicgXAogICAgICAgICAgICAgICAgJ1x0XHRrc3VfaGFuZGxlX2V4ZWN2ZWF0KCZmZCwgJmZpbGVuYW1lLCAmYXJndiwgJmVudnAsICZmbGFncyk7XG4nIFwKICAgICAgICAgICAgICAgICdcdGVsc2VcbicgXAogICAgICAgICAgICAgICAgJ1x0XHRrc3VfaGFuZGxlX2V4ZWN2ZWF0X3N1Y29tcGF0KCZmZCwgJmZpbGVuYW1lLCAmYXJndiwgJmVudnAsICZmbGFncyk7XG4nIFwKICAgICAgICAgICAgICAgICcjZW5kaWZcbicKICAgIHBhdCA9IHJlLmNvbXBpbGUocicoc3RhdGljXHMraW50XHMrZG9fZXhlY3ZlYXRfY29tbW9uXHMqXChbXjt7XSo/XClbXjt7XSo/KVx7JywgcmUuRE9UQUxMKQogICAgbSA9IHBhdC5zZWFyY2goc3JjKQogICAgaWYgbToKICAgICAgICBicmFjZV9wb3MgPSBtLmVuZCgxKQogICAgICAgIHNyYyA9IHNyY1s6YnJhY2VfcG9zXSArICJ7IiArIGhvb2tfYm9keSArIHNyY1ticmFjZV9wb3MrMTpdCiAgICAgICAgcHJpbnQoIj4+PiBkb19leGVjdmVhdF9jb21tb24g6ZKp5a2Q6LCD55So5bey5o+S5YWlIikKICAgIGVsc2U6CiAgICAgICAgcHJpbnQoIiEhISBXQVJOSU5HOiDmnKrmib7liLAgZG9fZXhlY3ZlYXRfY29tbW9u77yM6ZKp5a2Q6LCD55So5o+S5YWl5aSx6LSlIikKCiAgICB3aXRoIG9wZW4ocGF0aCwgInciKSBhcyBmOgogICAgICAgIGYud3JpdGUoc3JjKQpQWUVPRgoKY2F0ID4ga2VybmVsL2tzdS5jb25maWcgPDwgJ0tTVUNGRycKQ09ORklHX0tTVT15CkNPTkZJR19LUFJPQkVTPXkKQ09ORklHX0hBVkVfS1BST0JFUz15CkNPTkZJR19LUFJPQkVfRVZFTlRTPXkKS1NVQ0ZHCgplY2hvICI+Pj4gS2VybmVsU1Ug6ZuG5oiQ5a6M5oiQIgo='))"
+          python3 -c "import base64; open('$GITHUB_WORKSPACE/kernel_workspace/scripts/merge_config.py','wb').write(base64.b64decode('aW1wb3J0IG9zLCByZQpjZmdfcGF0aCA9ICdvdXQvLmNvbmZpZycKY2ZnID0gb3BlbihjZmdfcGF0aCkucmVhZCgpCmZvciBmcmFnIGluIFsna2VybmVsL2tzdS5jb25maWcnLCcuLi9kb2NrZXJfbHhjLmNvbmZpZyddOgogICAgaWYgbm90IG9zLnBhdGguZXhpc3RzKGZyYWcpOiBjb250aW51ZQogICAgZm9yIGxpbmUgaW4gb3BlbihmcmFnKToKICAgICAgICBsaW5lID0gbGluZS5zdHJpcCgpCiAgICAgICAgaWYgbm90IGxpbmUgb3IgbGluZS5zdGFydHN3aXRoKCcjJykgb3IgJz0nIG5vdCBpbiBsaW5lOiBjb250aW51ZQogICAgICAgIG5hbWUgPSBsaW5lLnNwbGl0KCc9JywxKVswXQogICAgICAgIGNmZyA9IHJlLnN1YihyJ14nK3JlLmVzY2FwZShuYW1lKStyJz0uKiQnLCcnLGNmZyxmbGFncz1yZS5NVUxUSUxJTkUpCiAgICAgICAgY2ZnID0gcmUuc3ViKHInXiMgJytyZS5lc2NhcGUobmFtZSkrcicgaXMgbm90IHNldCQnLCcnLGNmZyxmbGFncz1yZS5NVUxUSUxJTkUpCiAgICAgICAgY2ZnICs9IGxpbmUgKyBjaHIoMTApCm9wZW4oY2ZnX3BhdGgsJ3cnKS53cml0ZShjZmcpCnByaW50KCc+Pj4g6YWN572u5ZCI5bm25a6M5oiQJykK'))"
+          python3 -c "import base64; open('$GITHUB_WORKSPACE/kernel_workspace/docker_lxc.config','wb').write(base64.b64decode('IyBOYW1lc3BhY2VzCkNPTkZJR19OQU1FU1BBQ0VTPXkKQ09ORklHX1VUU19OUz15CkNPTkZJR19JUENfTlM9eQpDT05GSUdfVVNFUl9OUz15CkNPTkZJR19QSURfTlM9eQpDT05GSUdfTkVUX05TPXkKIyBDZ3JvdXBzCkNPTkZJR19DR1JPVVBTPXkKQ09ORklHX0NHUk9VUF9GUkVFWkVSPXkKQ09ORklHX0NHUk9VUF9QSURTPXkKQ09ORklHX0NHUk9VUF9ERVZJQ0U9eQpDT05GSUdfQ0dST1VQX0NQVUFDQ1Q9eQpDT05GSUdfQ0dST1VQX1NDSEVEPXkKQ09ORklHX0NQVVNFVFM9eQpDT05GSUdfTUVNQ0c9eQpDT05GSUdfQ0dST1VQX0hVR0VUTEI9eQpDT05GSUdfQ0dST1VQX1BFUkY9eQpDT05GSUdfTUVNQ0dfU1dBUD15CkNPTkZJR19NRU1DR19LTUVNPXkKIyBOZXR3b3JrCkNPTkZJR19WRVRIPXkKQ09ORklHX0JSSURHRT15CkNPTkZJR19CUklER0VfTkVURklMVEVSPXkKQ09ORklHX0lQX05GX0ZJTFRFUj15CkNPTkZJR19JUF9ORl9UQVJHRVRfTUFTUVVFUkFERT15CkNPTkZJR19ORVRGSUxURVJfWFRfTUFUQ0hfQUREUlRZUEU9eQpDT05GSUdfTkVURklMVEVSX1hUX01BVENIX0NPTk5UUkFDSz15CkNPTkZJR19ORVRGSUxURVJfWFRfTUFUQ0hfSVBWUz15CkNPTkZJR19ORVRGSUxURVJfWFRfTUFSSz15CkNPTkZJR19JUF9ORl9OQVQ9eQpDT05GSUdfTkZfTkFUPXkKQ09ORklHX05GX0NPTk5UUkFDSz15CkNPTkZJR19ORl9DT05OVFJBQ0tfTUFSSz15CkNPTkZJR19ORl9OQVRfSVBWND15CkNPTkZJR19ORVRGSUxURVI9eQpDT05GSUdfTkVURklMVEVSX0FEVkFOQ0VEPXkKQ09ORklHX0lQX05GX0lQVEFCTEVTPXkKQ09ORklHX0lQNl9ORl9JUFRBQkxFUz15CkNPTkZJR19ORVRGSUxURVJfWFRfVEFSR0VUX0NIRUNLU1VNPXkKIyBJUFZTCkNPTkZJR19JUF9WUz15CkNPTkZJR19JUF9WU19QUk9UT19UQ1A9eQpDT05GSUdfSVBfVlNfUFJPVE9fVURQPXkKQ09ORklHX0lQX1ZTX1JSPXkKQ09ORklHX0lQX1ZTX1dSUj15CiMgRmlsZXN5c3RlbXMKQ09ORklHX09WRVJMQVlfRlM9eQpDT05GSUdfT1ZFUkxBWV9GU19SRURJUkVDVF9ESVI9eQpDT05GSUdfT1ZFUkxBWV9GU19JTkRFWD15CkNPTkZJR19UTVBGUz15CkNPTkZJR19UTVBGU19QT1NJWF9BQ0w9eQpDT05GSUdfVE1QRlNfWEFUVFI9eQojIFNlY3VyaXR5CkNPTkZJR19TRUNDT01QPXkKQ09ORklHX1NFQ0NPTVBfRklMVEVSPXkKQ09ORklHX0tFWVM9eQpDT05GSUdfQ0FQQUJJTElUSUVTPXkKQ09ORklHX1NFQ1VSSVRZPXkKQ09ORklHX1NFQ1VSSVRZX0FQUEFSTU9SPXkKQ09ORklHX1NFQ1VSSVRZX1NFTElOVVg9eQpDT05GSUdfU0VDVVJJVFlfU0VMSU5VWF9CT09UUEFSQU09eQojIE1pc2MKQ09ORklHX1BPU0lYX01RVUVVRT15CkNPTkZJR19ERVZUTVBGUz15CkNPTkZJR19ERVZUTVBGU19NT1VOVD15CkNPTkZJR19QUk9DX0ZTPXkKQ09ORklHX1NZU0ZTPXkKQ09ORklHX0ZBTk9USUZZPXkKQ09ORklHX0ZBTk9USUZZX0FDQ0VTU19QRVJNSVNTSU9OUz15CkNPTkZJR19TV0FQPXkKQ09ORklHX01NVV9OT1RJRklFUj15Cg=='))"
+          python3 -c "import base64; open('$GITHUB_WORKSPACE/kernel_workspace/kvm.config','wb').write(base64.b64decode('Q09ORklHX1ZJUlRVQUxJWkFUSU9OPXkKQ09ORklHX0tWTT15CkNPTkZJR19LVk1fTVNNPXkK'))"
+          chmod +x $GITHUB_WORKSPACE/kernel_workspace/scripts/*.sh
+          echo ">>> 所有脚本/配置已就绪"
+          ls -la $GITHUB_WORKSPACE/kernel_workspace/scripts/
+          wc -l $GITHUB_WORKSPACE/kernel_workspace/docker_lxc.config
 
-      # =========================
-      # 4️⃣ 缓存 Clang（使用 r383902，对4.4内核兼容性好）
-      # =========================
-      - name: Cache Clang
+      - name: 缓存工具链
         uses: actions/cache@v4
         with:
-          path: kernel_workspace/clang-proton
-          key: clang-proton-12
+          path: kernel_workspace/toolchains
+          key: mi6-toolchains-aospgcc-proton-v3
 
-      - name: Setup Clang
+      - name: 下载编译工具链
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
+          mkdir -p toolchains && cd toolchains
+          if [ ! -d gcc64 ]; then
+            echo ">>> 下载 aarch64 GCC 4.9..."
+            wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/android10-release.tar.gz -O gcc64.tar.gz
+            mkdir -p gcc64 && tar -xzf gcc64.tar.gz -C gcc64 && rm gcc64.tar.gz
+          fi
+          if [ ! -d gcc32 ]; then
+            echo ">>> 下载 arm GCC 4.9..."
+            wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/heads/android10-release.tar.gz -O gcc32.tar.gz
+            mkdir -p gcc32 && tar -xzf gcc32.tar.gz -C gcc32 && rm gcc32.tar.gz
+          fi
           if [ ! -d clang-proton ]; then
-            # 使用稳定版 Clang，兼容4.4内核编译
+            echo ">>> 下载 Proton Clang 13..."
             wget -q https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz -O proton-clang.tar.gz
             mkdir -p clang-proton
             tar -xzf proton-clang.tar.gz -C clang-proton --strip-components=1
             rm proton-clang.tar.gz
           fi
-          ls clang-proton/bin/
+          echo ">>> 工具链就绪"
 
-      # =========================
-      # 5️⃣ 缓存内核源码
-      # =========================
-      - name: Cache Kernel Source
+      - name: 缓存内核源码
         uses: actions/cache@v4
         with:
           path: kernel_workspace/android-kernel
-          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}-${{ github.sha }}
-          restore-keys: |
-            kernel-${{ env.KERNEL_SOURCE_BRANCH }}-
+          key: kernel-${{ env.KERNEL_SOURCE_BRANCH }}-v4
 
-      - name: Clone kernel
+      - name: 克隆内核源码
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           if [ ! -d android-kernel ]; then
+            echo ">>> 克隆内核源码..."
             git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
           fi
+          echo ">>> 内核版本："
+          head -5 android-kernel/Makefile
 
-      # =========================
-      # 5.5️⃣ 集成 KernelSU v0.9.5（非GKI 4.4内核专用）
-      # =========================
-      - name: Integrate KernelSU
+      - name: 应用编译前源码补丁
+        run: bash $GITHUB_WORKSPACE/kernel_workspace/scripts/patch_kernel.sh $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+
+      - name: 集成 KernelSU
         if: env.ENABLE_KERNELSU == 'true'
+        run: bash $GITHUB_WORKSPACE/kernel_workspace/scripts/integrate_ksu.sh $GITHUB_WORKSPACE/kernel_workspace/android-kernel ${{ env.KERNELSU_TAG }}
+
+      - name: 追加 KVM 配置
+        if: env.ENABLE_LXC_DOCKER == 'true' && env.ENABLE_KVM == 'true'
+        run: cat $GITHUB_WORKSPACE/kernel_workspace/kvm.config >> $GITHUB_WORKSPACE/kernel_workspace/docker_lxc.config
+
+      - name: 配置内核
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          echo "::group::KernelSU Integration"
-          set -e
-
-          # 非GKI内核必须使用 v0.9.5，v1.0+ 不再支持非GKI
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh" | bash -s v0.9.5
-
-          echo "KernelSU 集成完成"
-          ls -la drivers/kernelsu/ 2>/dev/null || echo "⚠️  kernelsu 目录不在 drivers/ 下，可能在其他位置"
-          echo "::endgroup::"
-
-      # =========================
-      # 6️⃣ 预修复：GCC10+ yylloc multiple definition 错误
-      # 老内核 DTC 代码与新GCC的 -fno-common 默认冲突，添加 -fcommon 到主机编译标志
-      # =========================
-      - name: Patch old kernel GCC10+ compatibility
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          echo "::group::Patch yylloc multiple definition"
-
-          # 方法1：向 scripts/dtc/dtc-lexer.lex.c_shipped 添加 extern YYLTYPE yylloc
-          if [ -f scripts/dtc/dtc-lexer.lex.c_shipped ]; then
-            # 检查是否已经修改过
-            if ! grep -q "extern YYLTYPE yylloc" scripts/dtc/dtc-lexer.lex.c_shipped; then
-              sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.lex.c_shipped
-              echo "已修复 scripts/dtc/dtc-lexer.lex.c_shipped 的 yylloc 定义"
-            fi
-          fi
-
-          # 方法2：同样检查生成的 .l 文件
-          if [ -f scripts/dtc/dtc-lexer.l ]; then
-            if ! grep -q "extern YYLTYPE yylloc" scripts/dtc/dtc-lexer.l; then
-              sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' scripts/dtc/dtc-lexer.l 2>/dev/null || true
-            fi
-          fi
-
-          # 方法3：确保顶层 Makefile 给 HOSTCFLAGS 添加 -fcommon
-          if ! grep -q "HOSTCFLAGS.*-fcommon" Makefile; then
-            sed -i '/^HOSTCFLAGS/s/$/ -fcommon/' Makefile
-            echo "已在 Makefile 中为 HOSTCFLAGS 添加 -fcommon"
-          fi
-
-          echo "::endgroup::"
-
-      # =========================
-      # 6.5️⃣ 清理构建目录
-      # =========================
-      - name: Clean kernel build
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export ARCH=arm64 SUBARCH=arm64
+          echo ">>> 清理..."
           rm -rf out
-          make mrproper || true
-          make clean || true
-
-      # =========================
-      # 7️⃣ 生成完整的 Docker/LXC + KernelSU 配置
-      # =========================
-      - name: Generate feature config
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
-          cat > kernel_features.txt <<'EOF'
-          # ==================================================
-          # Docker / LXC 容器必需内核配置（基于 Moby check-config）
-          # 以及 KernelSU 依赖配置
-          # ==================================================
-
-          # ---------- Namespaces 命名空间（容器隔离基础） ----------
-          CONFIG_NAMESPACES=y
-          CONFIG_NET_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_UTS_NS=y
-          CONFIG_USER_NS=y
-
-          # ---------- Cgroups 控制组（资源限制） ----------
-          CONFIG_CGROUPS=y
-          CONFIG_CGROUP_CPUACCT=y
-          CONFIG_CGROUP_DEVICE=y
-          CONFIG_CGROUP_FREEZER=y
-          CONFIG_CGROUP_SCHED=y
-          CONFIG_CPUSETS=y
-          CONFIG_MEMCG=y
-          CONFIG_MEMCG_SWAP=y
-          CONFIG_MEMCG_SWAP_ENABLED=y
-          CONFIG_CGROUP_BPF=y
-          CONFIG_CGROUP_PIDS=y
-
-          # ---------- 网络支持（容器网络） ----------
-          CONFIG_VETH=y
-          CONFIG_BRIDGE=y
-          CONFIG_BRIDGE_NETFILTER=y
-          CONFIG_IP_NF_FILTER=y
-          CONFIG_IP_NF_TARGET_MASQUERADE=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MATCH_IPVS=y
-          CONFIG_NETFILTER_XT_MARK=y
-          CONFIG_IP_NF_NAT=y
-          CONFIG_NF_NAT=y
-          CONFIG_NF_NAT_IPV4=y
-          CONFIG_NF_NAT_NEEDED=y
-          CONFIG_IP_NF_TARGET_REDIRECT=y
-          CONFIG_NETFILTER_ADVANCED=y
-
-          # ---------- 文件系统 ----------
-          CONFIG_OVERLAY_FS=y
-          CONFIG_OVERLAY_FS_REDIRECT_DIR=y
-          CONFIG_OVERLAY_FS_INDEX=y
-          CONFIG_TMPFS=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_KEYS=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_FANOTIFY=y
-          CONFIG_FHANDLE=y
-          CONFIG_PROC_FS=y
-          CONFIG_SYSFS=y
-          CONFIG_DEVTMPFS=y
-          CONFIG_DEVTMPFS_MOUNT=y
-
-          # ---------- 安全相关 ----------
-          CONFIG_SECCOMP=y
-          CONFIG_SECCOMP_FILTER=y
-          CONFIG_CC_STACKPROTECTOR=y
-          CONFIG_CC_STACKPROTECTOR_STRONG=y
-          CONFIG_SECURITY=y
-          CONFIG_SECURITY_NETWORK=y
-          CONFIG_SECURITY_SELINUX=y
-          CONFIG_SECURITY_SELINUX_BOOTPARAM=y
-          CONFIG_SECURITY_SELINUX_DISABLE=y
-          CONFIG_SECURITY_SELINUX_DEVELOP=y
-          CONFIG_SECURITY_SELINUX_AVC_STATS=y
-
-          # ---------- Netfilter / iptables ----------
-          CONFIG_NETFILTER=y
-          CONFIG_NETFILTER_XTABLES=y
-          CONFIG_NETFILTER_XT_TARGET_MARK=y
-          CONFIG_NETFILTER_XT_MATCH_COMMENT=y
-          CONFIG_NETFILTER_XT_MATCH_MARK=y
-          CONFIG_IP_NF_IPTABLES=y
-          CONFIG_IP_NF_MANGLE=y
-          CONFIG_IP_NF_NAT_NEEDED=y
-          CONFIG_IP_VS=y
-          CONFIG_IP_VS_NFCT=y
-          CONFIG_IP_VS_PROTO_TCP=y
-          CONFIG_IP_VS_PROTO_UDP=y
-          CONFIG_IP_VS_RR=y
-
-          # ---------- KernelSU 依赖 ----------
-          CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
-          CONFIG_MODVERSIONS=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-
-          # ---------- 其他 Docker 必需项 ----------
-          CONFIG_UTS_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_USER_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_NET_NS=y
-          CONFIG_MMU=y
-          CONFIG_SWAP=y
-          CONFIG_FREEZER=y
-          CONFIG_EVENTFD=y
-          CONFIG_EPOLL=y
-          CONFIG_UNIX=y
-          CONFIG_INET=y
-          CONFIG_IPV6=y
-          CONFIG_VSOCKETS=y
-          CONFIG_VIRTIO_VSOCKETS=y
-          CONFIG_NETFILTER_XT_MATCH_BPF=y
-          CONFIG_BPF=y
-          CONFIG_BPF_SYSCALL=y
-          CONFIG_NET_CLS_BPF=y
-          CONFIG_BPF_EVENTS=y
-
-          # ---------- 禁用冲突项 ----------
-          CONFIG_STRICT_MEMORY_RWX=n
-          # CONFIG_DM_REQ_CRYPT is not set
-
-          # ---------- LXC 额外需要 ----------
-          CONFIG_IKCONFIG=y
-          CONFIG_IKCONFIG_PROC=y
-          CONFIG_BINFMT_MISC=y
-          CONFIG_CHECKPOINT_RESTORE=y
-          CONFIG_NAMESPACES=y
-          CONFIG_NET_NS=y
-          CONFIG_PID_NS=y
-          CONFIG_IPC_NS=y
-          CONFIG_UTS_NS=y
-          CONFIG_USER_NS=y
-          CONFIG_CGROUPS=y
-          CONFIG_CGROUP_CPUACCT=y
-          CONFIG_CGROUP_DEVICE=y
-          CONFIG_CGROUP_FREEZER=y
-          CONFIG_CGROUP_SCHED=y
-          CONFIG_CPUSETS=y
-          CONFIG_MEMCG=y
-          CONFIG_KEYS=y
-          CONFIG_VETH=y
-          CONFIG_BRIDGE=y
-          CONFIG_BRIDGE_NETFILTER=y
-          CONFIG_IP_NF_FILTER=y
-          CONFIG_IP_NF_TARGET_MASQUERADE=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
-          CONFIG_NETFILTER_XT_MATCH_IPVS=y
-          CONFIG_NETFILTER_XT_MARK=y
-          CONFIG_IP_NF_NAT=y
-          CONFIG_NF_NAT=y
-          CONFIG_NF_NAT_IPV4=y
-          CONFIG_NF_NAT_NEEDED=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_OVERLAY_FS=y
-          CONFIG_NF_CONNTRACK=y
-          CONFIG_NF_CONNTRACK_MARK=y
-          CONFIG_NF_CONNTRACK_ZONES=y
-          CONFIG_IP_NF_MANGLE=y
-          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
-          CONFIG_NETFILTER_XT_MATCH_OWNER=y
-          CONFIG_IPV6_MULTIPLE_TABLES=y
-          CONFIG_IPV6_SUBTREES=y
-          CONFIG_NF_NAT_IPV6=y
-          CONFIG_IP6_NF_NAT=y
-          CONFIG_IP6_NF_FILTER=y
-          CONFIG_IP6_NF_TARGET_MASQUERADE=y
-          CONFIG_IP6_NF_IPTABLES=y
-          CONFIG_IP6_NF_MANGLE=y
-          CONFIG_NETFILTER_XT_MATCH_PHYSDEV=y
-          CONFIG_IP_VS_SH=y
-          CONFIG_IP_VS_WRR=y
-          CONFIG_NETFILTER_XT_MATCH_L2TP=y
-          CONFIG_NETFILTER_XT_MATCH_RECENT=y
-          CONFIG_NETFILTER_XT_MATCH_STATISTIC=y
-          CONFIG_NETFILTER_XT_MATCH_STRING=y
-          CONFIG_NETFILTER_XT_MATCH_TIME=y
-          CONFIG_NETFILTER_XT_MATCH_U32=y
-          CONFIG_TASKSTATS=y
-          CONFIG_TASK_DELAY_ACCT=y
-          CONFIG_TASK_IO_ACCOUNTING=y
-          CONFIG_VETH=y
-          CONFIG_MACVLAN=y
-          CONFIG_VLAN_8021Q=y
-          CONFIG_BRIDGE_VLAN_FILTERING=y
-          CONFIG_IP_MULTIPLE_TABLES=y
-          CONFIG_PPP=y
-          CONFIG_PPP_ASYNC=y
-          CONFIG_PPP_SYNC_TTY=y
-          CONFIG_PPP_DEFLATE=y
-          CONFIG_PPP_BSDCOMP=y
-          CONFIG_PPP_MPPE=y
-          CONFIG_PPPOE=y
-          CONFIG_PPTP=y
-          CONFIG_PPPOL2TP=y
-          CONFIG_NET_PPP=y
-          CONFIG_NET_KEY=y
-          CONFIG_INET_DIAG=y
-          CONFIG_INET_TCP_DIAG=y
-          CONFIG_INET_UDP_DIAG=y
-          CONFIG_PACKET_DIAG=y
-          CONFIG_NETLINK_DIAG=y
-          CONFIG_UNIX_DIAG=y
-          CONFIG_MAGIC_SYSRQ=y
-          CONFIG_PRINTK_TIME=y
-          CONFIG_DEBUG_INFO=n
-          EOF
-
-          echo "Kernel features config generated:"
-          wc -l kernel_features.txt
-
-      # =========================
-      # 8️⃣ 内核配置合并（使用更可靠的 merge_config.sh 方式）
-      # =========================
-      - name: Configure kernel
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
-          export ARCH=arm64
-          export O=out
-          export SUBARCH=arm64
-
-          echo "::group::Loading defconfig"
+          make mrproper 2>/dev/null || true
+          mkdir -p out
+          echo ">>> 加载 defconfig..."
           make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
-          echo "::endgroup::"
-
-          # 使用 scripts/kconfig/merge_config.sh 来可靠合并片段，
-          # 这比手动sed追加要可靠得多，能自动处理依赖关系
-          if [ -f ../kernel_features.txt ]; then
-            echo "::group::Merging Docker/LXC/KernelSU configs via merge_config.sh"
-            # 去重后合并
-            sort ../kernel_features.txt | uniq > /tmp/feature_fragment.txt
-            if [ -f scripts/kconfig/merge_config.sh ]; then
-              scripts/kconfig/merge_config.sh -m -O out out/.config /tmp/feature_fragment.txt
-            else
-              # 没有merge_config.sh时采用逐行追加方式
-              while IFS= read -r line; do
-                [ -z "$line" ] && continue
-                [[ "$line" =~ ^[[:space:]]*# ]] && continue
-                config_name=$(echo "$line" | cut -d'=' -f1)
-                # 移除同名旧配置
-                sed -i "/^${config_name}=/d" out/.config
-                sed -i "/^# ${config_name} is not set$/d" out/.config
-                echo "$line" >> out/.config
-              done < /tmp/feature_fragment.txt
-            fi
-            echo "::endgroup::"
-          fi
-
-          echo "::group::Finalize config with olddefconfig"
-          # 让Kconfig自动解析并补齐所有依赖，对交互式选项使用默认值
-          yes "" | make O=out ARCH=arm64 oldconfig 2>&1 || \
+          echo ">>> 合并额外配置..."
+          cp $GITHUB_WORKSPACE/kernel_workspace/docker_lxc.config . 2>/dev/null || true
+          python3 $GITHUB_WORKSPACE/kernel_workspace/scripts/merge_config.py
+          echo ">>> 禁用 COMPAT_VDSO..."
+          sed -i 's/^CONFIG_COMPAT_VDSO=y/# CONFIG_COMPAT_VDSO is not set/' out/.config
+          echo ">>> olddefconfig 补齐依赖..."
           make O=out ARCH=arm64 olddefconfig
-          echo "::endgroup::"
+          echo ">>> 关键配置检查:"
+          for c in CONFIG_KSU CONFIG_KPROBES CONFIG_OVERLAY_FS CONFIG_VETH CONFIG_CGROUPS CONFIG_USER_NS CONFIG_NF_NAT_IPV4 CONFIG_NAMESPACES; do
+            printf "  %s = " "$c"
+            grep "^${c}=" out/.config | head -1 || echo "(未设置)"
+          done
+          rm -f docker_lxc.config
 
-          # 确认关键选项已开启
-          echo "::group::Verify critical configs"
-          echo "--- Namespaces ---"
-          grep -E "CONFIG_(NAMESPACES|NET_NS|PID_NS|IPC_NS|UTS_NS|USER_NS)=" out/.config
-          echo "--- Cgroups ---"
-          grep -E "CONFIG_(CGROUPS|MEMCG|CGROUP_DEVICE|CPUSETS|CGROUP_BPF)=" out/.config
-          echo "--- Network ---"
-          grep -E "CONFIG_(VETH|BRIDGE|BRIDGE_NETFILTER|OVERLAY_FS)=" out/.config
-          echo "--- KernelSU ---"
-          grep -E "CONFIG_KSU|CONFIG_KPROBES" out/.config || echo "⚠️ KernelSU config not found, this may be normal if Kconfig isn't yet processed"
-          echo "::endgroup::"
-
-      # =========================
-      # 9️⃣ 设置 ccache 加速
-      # =========================
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          max-size: 3G
-
-      # =========================
-      # 🔟 编译内核（关键错误处理 + 错误日志输出）
-      # =========================
-      - name: Build kernel
+      - name: 编译内核
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
-          CLANG_DIR="$GITHUB_WORKSPACE/kernel_workspace/clang-proton"
-          export PATH="${CLANG_DIR}/bin:$PATH"
-
-          # 验证clang可用
-          echo "::group::Compiler info"
+          GCC64="$GITHUB_WORKSPACE/kernel_workspace/toolchains/gcc64/bin"
+          GCC32="$GITHUB_WORKSPACE/kernel_workspace/toolchains/gcc32/bin"
+          CLANG="$GITHUB_WORKSPACE/kernel_workspace/toolchains/clang-proton/bin"
+          export PATH="$CLANG:$GCC64:$GCC32:$PATH"
+          export ARCH=arm64 SUBARCH=arm64
+          export KBUILD_BUILD_HOST=CI KBUILD_BUILD_USER=MI6
+          export HOSTCFLAGS="-fcommon -w"
+          export HOSTCXXFLAGS="-fcommon -w"
+          export KCFLAGS="-w -fcommon"
+          echo ">>> 编译器版本："
           clang --version | head -2
-          aarch64-linux-gnu-gcc --version | head -2
-          echo "::endgroup::"
-
-          export KBUILD_BUILD_HOST=CI
-          export KBUILD_BUILD_USER=MI6
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export O=out
-
-          # HOSTCFLAGS 增加 -fcommon 彻底解决 yylloc 问题
-          export HOSTCFLAGS="-fcommon -O2"
-          export HOSTLDFLAGS=""
-
-          echo "::group::Start kernel build"
+          aarch64-linux-android-gcc --version | head -1
+          arm-linux-androideabi-gcc --version | head -1
+          echo ""
+          echo ">>> 开始编译（-j$(nproc)）..."
           set +e
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
-            # LLVM=1 完整模式（4.4内核可能不兼容）
-            make -j$(nproc) O=out \
-              CC="ccache clang" \
-              LLVM=1 \
-              CLANG_TRIPLE=aarch64-linux-gnu- \
-              CROSS_COMPILE=aarch64-linux-gnu- \
-              CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-              2>&1 | tee build.log
-            BUILD_RC=${PIPESTATUS[0]}
-          else
-            # 使用 Clang 编译内核 + GNU as 汇编器（更稳定，推荐4.4内核使用）
-            make -j$(nproc) O=out \
-              CC="ccache clang" \
-              CLANG_TRIPLE=aarch64-linux-gnu- \
-              CROSS_COMPILE=aarch64-linux-gnu- \
-              CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-              2>&1 | tee build.log
-            BUILD_RC=${PIPESTATUS[0]}
-          fi
-          echo "::endgroup::"
-
-          # 编译失败时输出关键错误
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- 2>&1 | tee build.log
+          BUILD_RC=${PIPESTATUS[0]}
+          set -e
+          echo ""
+          echo ">>> make 返回码: $BUILD_RC"
           if [ $BUILD_RC -ne 0 ]; then
-            echo "❌ 编译失败！错误摘要如下："
-            echo "::group::BUILD ERROR SUMMARY (last 100 error lines)"
-            grep -E "^(.*error:|make\[.*\]: \*\*\*)" build.log | tail -100
-            echo "::endgroup::"
-            echo ""
-            echo "以下是可能的修复提示："
-            echo "  - 若报 yylloc/yylval 多重定义：HOSTCFLAGS -fcommon 已添加，检查 scripts/dtc 补丁是否生效"
-            echo "  - 若报 assembler 不识别指令：关闭 LLVM=1/LLVM_IAS，使用GNU as"
-            echo "  - 若报 某个 CONFIG 相关错误：检查 defconfig 合并是否正确"
+            echo "========================================"
+            echo "  编译失败！错误摘要（最后100条）："
+            echo "========================================"
+            grep -nE "error:|fatal error:|undefined reference|Stop\\.|Error [0-9]+" build.log | tail -100 || true
+            echo "========================================"
             exit $BUILD_RC
           fi
+          echo "">>> 编译成功！"
+          ls -la out/arch/arm64/boot/
 
-          echo "✅ 内核编译成功！"
-          echo "::group::Built artifacts"
-          ls -lh out/arch/arm64/boot/ 2>/dev/null || echo "⚠️ boot目录不存在"
-          echo "::endgroup::"
-
-      # =========================
-      # 1️⃣1️⃣ 打包内核（AnyKernel3）
-      # =========================
-      - name: Pack kernel
-        if: success()
+      - name: 打包 AnyKernel3
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          rm -rf AnyKernel3
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
-
-          # ---- 小米6 (sagit) 专用适配 ----
-          cd AnyKernel3
-          # 关闭设备检查（允许刷入）
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
-          # 小米6 boot 分区路径（A/B 单分区，非slot设备）
-          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' anykernel.sh
-          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' anykernel.sh
-          sed -i 's/is_slot_device=auto;/is_slot_device=0;/g' anykernel.sh
-          sed -i 's/device.name1=maguro/device.name1=sagit/g' anykernel.sh
-          sed -i 's/device.name2=toro/device.name2=sagit/g' anykernel.sh
-          sed -i 's/device.name3=toroplus/device.name3=MCE16/g' anykernel.sh
-          sed -i 's/device.name4=tuna/device.name4=MCT1/g' anykernel.sh
-          sed -i 's/device.name5=/device.name5=MI6/g' anykernel.sh
-
-          # 移除不相关的 ramdisk 补丁
-          for pat in "init.tuna.rc" "fstab.tuna" "replace_string init.rc" \
-                     "insert_line init.tuna" "patch_fstab fstab.tuna" \
-                     "append_file init.tuna" "append_file fstab.tuna" \
-                     "bootscript" "usbdisk" "do.ui_print.*Note"; do
-            sed -i "/${pat}/d" anykernel.sh 2>/dev/null
-          done
-
-          # 确保打包时不包含 modules/vendor（小米6单镜像内核）
-          echo "" >> anykernel.sh
-          echo "# MI6: do not patch ramdisk to avoid bootloop" >> anykernel.sh
-          echo "do.modules=0" >> anykernel.sh
-          echo "do.systemless=0" >> anykernel.sh
-          echo "do.cleanup=1" >> anykernel.sh
-          echo "do.patch_vbmeta=0" >> anykernel.sh
-
-          cd ..
-
-          # 复制内核镜像
-          IMAGE_FILE="${{ env.KERNEL_IMAGE_NAME }}"
-          if [ -z "$IMAGE_FILE" ]; then
-            IMAGE_FILE="Image.gz-dtb"
+          if [ ! -d AnyKernel3 ]; then
+            git clone https://github.com/osm0sis/AnyKernel3 --depth=1
           fi
-          if [ ! -f "android-kernel/out/arch/arm64/boot/${IMAGE_FILE}" ]; then
-            echo "⚠️ ${IMAGE_FILE} 不存在，尝试检测可用镜像..."
-            ls -la android-kernel/out/arch/arm64/boot/
-            # 回退尝试 Image.gz / Image
-            for f in Image.gz-dtb Image.gz Image; do
-              if [ -f "android-kernel/out/arch/arm64/boot/$f" ]; then
-                IMAGE_FILE="$f"
-                echo "使用 ${IMAGE_FILE} 作为回退"
-                break
+          cd AnyKernel3
+          sed -i 's|block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;|block=/dev/block/bootdevice/by-name/boot;|' anykernel.sh
+          sed -i 's/is_slot_device=1;/is_slot_device=0;/' anykernel.sh
+          sed -i 's/is_slot_device=auto;/is_slot_device=0;/' anykernel.sh
+          sed -i 's/patch_vbmeta_flag=auto;/patch_vbmeta_flag=0;/' anykernel.sh
+          sed -i 's/device.name1=maguro/device.name1=sagit/' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=MCE16/' anykernel.sh
+          sed -i 's/device.name3=toroplus/device.name3=MCT1/' anykernel.sh
+          sed -i 's/device.name4=tuna/device.name4=MI6/' anykernel.sh
+          for pat in init.tuna.rc fstab.tuna "replace_string init.rc" "insert_line init.tuna" "patch_fstab fstab.tuna" "append_file init.tuna" "append_file fstab.tuna" bootscript usbdisk; do
+            sed -i "/${pat}/d" anykernel.sh
+          done
+          cd ..
+          IMAGE_FILE="${{ env.KERNEL_IMAGE_NAME }}"
+          [ -z "$IMAGE_FILE" ] && IMAGE_FILE="Image.gz-dtb"
+          KERNEL_IMG="android-kernel/out/arch/arm64/boot/${IMAGE_FILE}"
+          if [ ! -f "$KERNEL_IMG" ]; then
+            for img in Image.gz-dtb Image.gz Image; do
+              if [ -f "android-kernel/out/arch/arm64/boot/$img" ]; then
+                KERNEL_IMG="android-kernel/out/arch/arm64/boot/$img"; IMAGE_FILE=$img; break
               fi
             done
           fi
-
-          cp android-kernel/out/arch/arm64/boot/${IMAGE_FILE} AnyKernel3/
-
-          # 清理 AnyKernel3 仓库文件
-          rm -rf AnyKernel3/.git* AnyKernel3/README.md
-          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
-          rm -f AnyKernel3/*.img AnyKernel3/zImage AnyKernel3/zImage-dtb
-
-          # 查看最终包内容
-          echo "::group::AnyKernel3 final content"
-          ls -la AnyKernel3/
-          head -30 AnyKernel3/anykernel.sh
-          echo "::endgroup::"
-
-          # 打包成zip
+          if [ ! -f "$KERNEL_IMG" ]; then
+            echo "ERROR: 找不到内核镜像"; ls -la android-kernel/out/arch/arm64/boot/ || true; exit 1
+          fi
+          cp "$KERNEL_IMG" AnyKernel3/
           cd AnyKernel3
-          zip -r ../${{ env.KERNEL_ZIP_NAME }}.zip . -x "*.zip"
+          rm -rf .git* README.md LICENSE modules patch
+          [ ! -d ramdisk ] && mkdir -p ramdisk
+          ZIP_NAME="${{ env.KERNEL_ZIP_NAME }}-$(date +%Y%m%d_%H%M).zip"
+          zip -r9 "../$ZIP_NAME" . -x "*.zip"
           cd ..
-          echo "✅ 内核包已打包: ${{ env.KERNEL_ZIP_NAME }}.zip"
-          ls -lh ${{ env.KERNEL_ZIP_NAME }}.zip
+          echo ">>> 打包完成: $ZIP_NAME"
+          echo "ZIP_PATH=$GITHUB_WORKSPACE/kernel_workspace/$ZIP_NAME" >> $GITHUB_ENV
 
-      # =========================
-      # 1️⃣2️⃣ 上传内核包
-      # =========================
-      - name: Upload kernel zip
-        if: success()
+      - name: 上传内核刷机包
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: |
-            kernel_workspace/*.zip
-            kernel_workspace/AnyKernel3/*
+          path: ${{ env.ZIP_PATH }}
 
-      # =========================
-      # 1️⃣3️⃣ 上传编译日志（不论成功失败都上传）
-      # =========================
-      - name: Upload build log
-        uses: actions/upload-artifact@v4
+      - name: 上传编译日志
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: kernel-build-log
           path: kernel_workspace/android-kernel/build.log
