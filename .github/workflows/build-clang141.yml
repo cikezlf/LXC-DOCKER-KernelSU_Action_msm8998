@@ -301,7 +301,7 @@ jobs:
           # 关闭冲突项
           CONFIG_STRICT_MEMORY_RWX=n
           EOF
-          wc -l kernel_features.txt
+                    wc -l kernel_features.txt
 
       # =========================
       # 8️⃣ 内核配置合并
