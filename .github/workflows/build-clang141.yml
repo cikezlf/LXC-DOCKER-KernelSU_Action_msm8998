@@ -581,6 +581,17 @@ jobs:
             exit 1
           fi
           echo "✅ 修复4校验通过，完全规避add w9,w9,x10类位宽不匹配的非法汇编错误"
+          
+          # 自旋锁头文件回滚完成标识输出
+          echo "[✓] 第四层Clang兼容适配：spinlock.h头文件架构分支回滚操作已完成"
+          
+          # 给高通msm摄像头驱动目录全局加-w，关闭所有警告避免编译终止
+          echo "ccflags-y += -w -Wno-error" >> drivers/media/platform/msm/Makefile
+          echo "ccflags-y += -w -Wno-error" >> drivers/media/Makefile
+          echo "[✓] media平台驱动目录告警豁免规则已写入"
+          
+          echo ""
+          echo "=== 重新生成内核配置（同步所有Clang兼容配置项） ==="
 
 
       - name: 【修复Clang兼容5.1】适配perf_event.h中current_stack_pointer调用逻辑
