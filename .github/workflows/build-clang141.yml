@@ -806,7 +806,7 @@ jobs:
           export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
           make O=out \
             CC=clang \
-            LD=ld.lld \
+            LD=aarch64-linux-gnu-ld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
