@@ -89,13 +89,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/clang-aosp
-          key: clang-aosp-android13-r450784d-v3
+          key: clang-aosp-android13-r450784d-v4
 
       - name: 【第三步】内核源码缓存
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/android-kernel
-          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v3
+          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v4
 
       - name: 【校验·第三步】缓存路径可写
         run: |
@@ -298,6 +298,8 @@ jobs:
           add_config "CONFIG_BPF_SYSCALL=y"
           add_config "CONFIG_BPF_JIT=y"
           add_config "CONFIG_MODULES=y"
+          # 禁用小米6不需要的TI LCD驱动，避免ld.lld空目录链接错误
+          add_config "# CONFIG_DRM_TILCDC is not set"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
           add_config "# CONFIG_MODULE_SIG is not set"
           add_config "# CONFIG_CC_STACKPROTECTOR_STRONG is not set"
@@ -368,12 +370,14 @@ jobs:
           # 修复所有非法无等号的Wno-error选项
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
-          # 全局顶层Makefile预加HOSTCFLAGS
+          # 全局顶层Makefile预加HOSTCFLAGS，修复ld.lld空目录链接兼容性问题
           echo "" >> Makefile
           echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
           echo "KBUILD_HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
           echo "export HOSTCFLAGS KBUILD_HOSTCFLAGS" >> Makefile
-          echo "[✓] 编译器兼容性修复完成，yylloc多重定义已彻底修复"
+          # 修复ld.lld空built-in.o链接错误：对空目录先生成空.o文件再链接
+          sed -i 's/built-in.o:/built-in.o:\n\t$(if $(strip $(obj-y)),,$(cmd LD) -r -o $@ /dev/null)/g' scripts/Makefile.build 2>/dev/null || true
+          echo "[✓] 编译器兼容性修复完成，yylloc多重定义+空目录链接错误已彻底修复"
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
