@@ -1250,7 +1250,7 @@ jobs:
           echo "=== 启动Clang全量内核编译 ==="
           make O=out \
             CC=clang \
-            LD=ld.lld \
+            LD=aarch64-linux-gnu-ld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
