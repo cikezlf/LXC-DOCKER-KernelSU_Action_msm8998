@@ -2,6 +2,8 @@
 set -eu
 
 GKI_ROOT=$(pwd)
+# OWNER="KernelSU-Next"
+# REPO="$OWNER"
 REPO="KernelSU-Next" 
 OWNER="kaho97"
 
@@ -55,6 +57,21 @@ setup_kernelsu() {
     
     # 强制切换到 legacy 分支 
     git checkout legacy && echo "[-] Checked out legacy branch."
+
+    # === 应用补丁逻辑 === 
+    # # 补丁文件名叫 legacy4.4.patch
+    # PATCH_FILE="$GKI_ROOT/$REPO/legacy_4.4.patch"
+    # if [ -f "$PATCH_FILE" ]; then
+    #     echo "[+] Applying patch: $PATCH_FILE"
+    #     if git apply "$PATCH_FILE"; then 
+    #         echo "[+] Patch applied successfully."
+    #     else 
+    #         echo "[!] git apply failed, trying with patch command..." 
+    #         patch -p1 < "$PATCH_FILE" 
+    #     fi 
+    # else echo "[!] No patch file found at $PATCH_FILE"
+    # fi 
+    # # =====================
 
     cd "$DRIVER_DIR"
     ln -sf "$(realpath --relative-to="$DRIVER_DIR" "$GKI_ROOT/$REPO/kernel")" "kernelsu" && echo "[+] Symlink created."
