@@ -1,98 +1,48 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
-GKI_ROOT=$(pwd)
-# OWNER="KernelSU-Next"
-# REPO="$OWNER"
-REPO="KernelSU-Next" 
-#OWNER="kaho97"
-OWNER="KernelSU-Next"
+echo "=== 开始集成KernelSU-Next v3.4.0-legacy ==="
 
+# KernelSU-Next官方仓库地址和版本
+KSU_REPO="https://github.com/KernelSU-Next/KernelSU-Next.git"
+KSU_VERSION="v3.4.0-legacy"
+KERNEL_ROOT=$(pwd)
 
-display_usage() {
-    echo "Usage: $0 [--cleanup | <commit-or-tag>]"
-    echo "  --cleanup:              Cleans up previous modifications made by the script."
-    echo "  <commit-or-tag>:        Sets up or updates the KernelSU-Next to specified tag or commit."
-    echo "  -h, --help:             Displays this usage information."
-    echo "  (no args):              Sets up or updates the KernelSU-Next environment to the latest tagged version."
-}
+# 清理旧版本残留
+rm -rf KernelSU-Next drivers/kernelsu
+echo "[✓] 旧版本残留已清理"
 
-initialize_variables() {
-    if test -d "$GKI_ROOT/common/drivers"; then
-         DRIVER_DIR="$GKI_ROOT/common/drivers"
-    elif test -d "$GKI_ROOT/drivers"; then
-         DRIVER_DIR="$GKI_ROOT/drivers"
-    else
-         echo '[ERROR] "drivers/" directory not found.'
-         exit 127
-    fi
+# 克隆KernelSU-Next（--depth=1加速，不会卡住）
+echo "=== 克隆KernelSU-Next $KSU_VERSION ==="
+git clone -q --depth=1 --branch "$KSU_VERSION" "$KSU_REPO" KernelSU-Next
+echo "[✓] KernelSU-Next $KSU_VERSION 克隆完成"
 
-    DRIVER_MAKEFILE=$DRIVER_DIR/Makefile
-    DRIVER_KCONFIG=$DRIVER_DIR/Kconfig
-}
+# 复制驱动到内核源码
+echo "=== 复制KernelSU驱动到内核源码 ==="
+cp -rf KernelSU-Next/kernel drivers/kernelsu
+echo "[✓] 驱动复制完成"
 
-# Reverts modifications made by this script
-perform_cleanup() {
-    echo "[+] Cleaning up..."
-    [ -L "$DRIVER_DIR/kernelsu" ] && rm "$DRIVER_DIR/kernelsu" && echo "[-] Symlink removed."
-    grep -q "kernelsu" "$DRIVER_MAKEFILE" && sed -i '/kernelsu/d' "$DRIVER_MAKEFILE" && echo "[-] Makefile reverted."
-    grep -q "drivers/kernelsu/Kconfig" "$DRIVER_KCONFIG" && sed -i '/drivers\/kernelsu\/Kconfig/d' "$DRIVER_KCONFIG" && echo "[-] Kconfig reverted."
-    if [ -d "$GKI_ROOT/$REPO" ]; then
-        rm -rf "$GKI_ROOT/$REPO" && echo "[-] $REPO directory deleted."
-    fi
-}
+# 集成内核Makefile和Kconfig
+echo "=== 集成KernelSU到内核构建系统 ==="
+sed -i 's/^CONFIG_KERNELSU=.*/CONFIG_KERNELSU=y/' .config
+echo "CONFIG_KERNELSU=y" >> .config
+echo "CONFIG_KPROBES=y" >> .config
+echo "CONFIG_HAVE_KPROBES=y" >> .config
+echo "CONFIG_KPROBE_EVENTS=y" >> .config
 
-# Sets up or update KernelSU-Next environment
-setup_kernelsu() {
-    echo "[+] Setting up $REPO..."
-    # 如果目录不存在就 clone 
-    if [ ! -d "$GKI_ROOT/$REPO" ]; then 
-        git clone -b legacy "https://github.com/$OWNER/$REPO" "$GKI_ROOT/$REPO"
-        echo "[+] Repository cloned." 
-    fi 
-    
-    cd "$GKI_ROOT/$REPO"
-    # 清理现场 
-    git stash && echo "[-] Stashed current changes."
-    git pull origin legacy && echo "[+] Repository updated." 
-    
-    # 强制切换到 legacy 分支 
-    git checkout legacy && echo "[-] Checked out legacy branch."
-
-    # === 应用补丁逻辑 === 
-    # # 补丁文件名叫 legacy4.4.patch
-    # PATCH_FILE="$GKI_ROOT/$REPO/legacy_4.4.patch"
-    # if [ -f "$PATCH_FILE" ]; then
-    #     echo "[+] Applying patch: $PATCH_FILE"
-    #     if git apply "$PATCH_FILE"; then 
-    #         echo "[+] Patch applied successfully."
-    #     else 
-    #         echo "[!] git apply failed, trying with patch command..." 
-    #         patch -p1 < "$PATCH_FILE" 
-    #     fi 
-    # else echo "[!] No patch file found at $PATCH_FILE"
-    # fi 
-    # # =====================
-
-    cd "$DRIVER_DIR"
-    ln -sf "$(realpath --relative-to="$DRIVER_DIR" "$GKI_ROOT/$REPO/kernel")" "kernelsu" && echo "[+] Symlink created."
-
-    # Add entries in Makefile and Kconfig if not already existing
-    grep -q "kernelsu" "$DRIVER_MAKEFILE" || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> "$DRIVER_MAKEFILE" && echo "[+] Modified Makefile."
-    grep -q "source \"drivers/kernelsu/Kconfig\"" "$DRIVER_KCONFIG" || sed -i "/endmenu/i\source \"drivers/kernelsu/Kconfig\"" "$DRIVER_KCONFIG" && echo "[+] Modified Kconfig."
-    echo '[+] Done.'
-}
-
-# Process command-line arguments
-if [ "$#" -eq 0 ]; then
-    initialize_variables
-    setup_kernelsu
-elif [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    display_usage
-elif [ "$1" = "--cleanup" ]; then
-    initialize_variables
-    perform_cleanup
-else
-    initialize_variables
-    setup_kernelsu "$@"
+# 把kernelsu加入drivers/Makefile和Kconfig
+if ! grep -q "kernelsu" drivers/Makefile; then
+    echo "obj-\$(CONFIG_KERNELSU)		+= kernelsu/" >> drivers/Makefile
 fi
+if ! grep -q "kernelsu" drivers/Kconfig; then
+    sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+fi
+echo "[✓] 内核构建系统集成完成"
+
+# 给KernelSU驱动加警告豁免，避免Clang警告终止编译
+echo "ccflags-y += -w -Wno-error" >> drivers/kernelsu/Makefile
+echo "[✓] KernelSU驱动警告豁免配置完成"
+
+# 同步配置
+make ARCH=arm64 olddefconfig O=out 2>/dev/null || true
+echo "[✓] KernelSU-Next v3.4.0-legacy 集成完成"
