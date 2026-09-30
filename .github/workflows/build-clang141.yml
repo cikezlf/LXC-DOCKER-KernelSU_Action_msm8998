@@ -784,6 +784,17 @@ jobs:
           fi
           echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
 
+          # ==================== 这里插入你要加的行 ====================
+          # 强制指定GNU链接器，覆盖LLVM=1强制使用ld.lld的问题，解决空目录链接错误
+          echo "LD := aarch64-linux-gnu-ld" >> $GITHUB_WORKSPACE/kernel_workspace/android-kernel/Makefile
+          echo "LD = aarch64-linux-gnu-ld" >> $GITHUB_WORKSPACE/kernel_workspace/android-kernel/Makefile
+          echo "[✓] 已强制指定链接器为aarch64-linux-gnu-ld，解决ld.lld空目录报错"
+          # ==========================================================
+          
+          echo ""
+          echo "=== 初始化编译全局环境变量 ==="
+
+
       
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
