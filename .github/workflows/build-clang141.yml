@@ -337,7 +337,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           rm -rf KernelSU KernelSU-Next drivers/kernelsu
-          git clone -q https://github.com/tiann/KernelSU -b v3.4.0-legacy --depth=1 KernelSU
+          git clone -q https://github.com/tiann/KernelSU -b v3.4.0 --depth=1 KernelSU
           # KernelSU setup.sh 必须在内核源码根目录执行，无参数默认自动集成到drivers目录
           KernelSU/kernel/setup.sh
           grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
