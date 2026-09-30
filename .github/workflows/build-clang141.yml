@@ -332,16 +332,16 @@ jobs:
           echo "✅ 第七步校验通过"
 
 
-      # ==================== 第九步：KernelSU-Next ====================
-      - name: 【第九步】部署 KernelSU-Next Legacy
+      - name: 【第九步】部署 KernelSU v0.9.5 官方稳定版
         id: step9
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
-          chmod 755 ksu-legacy-setup.sh
-          ./ksu-legacy-setup.sh
+          rm -rf KernelSU KernelSU-Next drivers/kernelsu
+          git clone -q https://github.com/tiann/KernelSU -b v3.4.0-legacy --depth=1 KernelSU
+          # KernelSU setup.sh 必须在内核源码根目录执行，无参数默认自动集成到drivers目录
+          KernelSU/kernel/setup.sh
           grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
-          echo "[✓] KernelSU-Next 部署完成"
+          echo "[✓] KernelSU v0.9.5 官方版部署完成"
 
       - name: 【校验·第九步】KernelSU 配置确认
         run: |
