@@ -1,15 +1,15 @@
 #!/bin/sh
-set +e # 关闭严格模式，避免非零返回静默卡住无输出
+set -eu
 
 GKI_ROOT=$(pwd)
 REPO="KernelSU-Next" 
-OWNER="kaho97" # 改为官方仓库地址，不使用第三方fork
+OWNER="kaho97"
 
 
 display_usage() {
-    echo "Usage: $0 [--cleanup | ]"
+    echo "Usage: $0 [--cleanup | <commit-or-tag>]"
     echo "  --cleanup:              Cleans up previous modifications made by the script."
-    echo "  :        Sets up or updates the KernelSU-Next to specified tag or commit."
+    echo "  <commit-or-tag>:        Sets up or updates the KernelSU-Next to specified tag or commit."
     echo "  -h, --help:             Displays this usage information."
     echo "  (no args):              Sets up or updates the KernelSU-Next environment to the latest tagged version."
 }
@@ -41,17 +41,17 @@ perform_cleanup() {
 
 # Sets up or update KernelSU-Next environment
 setup_kernelsu() {
-    echo "[+] Setting up $REPO from official repo $OWNER/$REPO (legacy branch)..."
-    # 如果目录不存在就clone，指定--depth=1加速不会卡住
+    echo "[+] Setting up $REPO..."
+    # 如果目录不存在就 clone 
     if [ ! -d "$GKI_ROOT/$REPO" ]; then 
-        git clone --depth=1 -b legacy "https://github.com/$OWNER/$REPO" "$GKI_ROOT/$REPO"
-        echo "[+] Repository cloned successfully." 
+        git clone -b legacy "https://github.com/$OWNER/$REPO" "$GKI_ROOT/$REPO"
+        echo "[+] Repository cloned." 
     fi 
     
     cd "$GKI_ROOT/$REPO"
     # 清理现场 
     git stash && echo "[-] Stashed current changes."
-    git pull origin legacy && echo "[+] Repository updated to latest legacy version." 
+    git pull origin legacy && echo "[+] Repository updated." 
     
     # 强制切换到 legacy 分支 
     git checkout legacy && echo "[-] Checked out legacy branch."
@@ -62,7 +62,7 @@ setup_kernelsu() {
     # Add entries in Makefile and Kconfig if not already existing
     grep -q "kernelsu" "$DRIVER_MAKEFILE" || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> "$DRIVER_MAKEFILE" && echo "[+] Modified Makefile."
     grep -q "source \"drivers/kernelsu/Kconfig\"" "$DRIVER_KCONFIG" || sed -i "/endmenu/i\source \"drivers/kernelsu/Kconfig\"" "$DRIVER_KCONFIG" && echo "[+] Modified Kconfig."
-    echo '[+] KernelSU-Next legacy setup done successfully.'
+    echo '[+] Done.'
 }
 
 # Process command-line arguments
