@@ -3,7 +3,7 @@ set +e # 关闭严格模式，避免非零返回静默卡住无输出
 
 GKI_ROOT=$(pwd)
 REPO="KernelSU-Next" 
-OWNER="KernelSU-Next" # 改为官方仓库地址，不使用第三方fork
+OWNER="kaho97" # 改为官方仓库地址，不使用第三方fork
 
 
 display_usage() {
