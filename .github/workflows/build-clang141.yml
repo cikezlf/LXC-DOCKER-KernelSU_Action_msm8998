@@ -300,6 +300,8 @@ jobs:
           add_config "CONFIG_MODULES=y"
           # 禁用小米6不需要的TI LCD驱动，避免ld.lld空目录链接错误
           add_config "# CONFIG_DRM_TILCDC is not set"
+          add_config "# CONFIG_DRM is not set"
+          add_config "# CONFIG_SND_DRIVERS is not set"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
           add_config "# CONFIG_MODULE_SIG is not set"
           add_config "# CONFIG_CC_STACKPROTECTOR_STRONG is not set"
@@ -376,7 +378,10 @@ jobs:
           echo "KBUILD_HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
           echo "export HOSTCFLAGS KBUILD_HOSTCFLAGS" >> Makefile
           # 修复ld.lld空built-in.o链接错误：对空目录先生成空.o文件再链接
-          sed -i 's/built-in.o:/built-in.o:\n\t$(if $(strip $(obj-y)),,$(cmd LD) -r -o $@ /dev/null)/g' scripts/Makefile.build 2>/dev/null || true
+          sed -i 's|^$builtin-target := $(obj)/built-in.o$|\1\n\n# Fix ld.lld empty link error\nifeq ($(strip $(obj-y) $(obj-m) $(lib-y)),)\n$(builtin-target):\n\t$(Q)touch $@\nelse|g' scripts/Makefile.build
+          if grep -q "ifeq (\$(strip \$(obj-y) \$(obj-m) \$(lib-y)),)" scripts/Makefile.build && ! grep -q "endif.*# empty built-in.o fix" scripts/Makefile.build; then
+              echo "endif # empty built-in.o fix" >> scripts/Makefile.build
+          fi
           echo "[✓] 编译器兼容性修复完成，yylloc多重定义+空目录链接错误已彻底修复"
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
@@ -815,7 +820,6 @@ jobs:
           export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
           make O=out \
             CC=clang \
-            LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
