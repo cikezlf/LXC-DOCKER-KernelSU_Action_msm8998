@@ -221,42 +221,6 @@ jobs:
           echo "✅ 第六步校验通过"
 
 
-      - name: 【校验·修复7】vidc补丁结果自检
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
-          FAIL=0
-          # 1) 回调函数必须在文件作用域（行首无缩进）
-          if grep -q '^static void put_inst_helper(struct kref' "$VIDCFILE"; then
-            echo "[✓] put_inst_helper 已在文件作用域"
-          else
-            echo "[✗] put_inst_helper 未提升到文件作用域"
-            FAIL=1
-          fi
-          # 2) kref_put 调用的上一行不得是单独的 }
-          if grep -B1 'kref_put(&inst->kref, put_inst_helper);' "$VIDCFILE" | grep -q '^}'; then
-            echo "[✗] kref_put 之前存在多余右大括号"
-            FAIL=1
-          else
-            echo "[✓] kref_put 之前无多余右大括号"
-          fi
-          # 3) 全文件花括号必须平衡
-          O=$(tr -cd '{' < "$VIDCFILE" | wc -c)
-          C=$(tr -cd '}' < "$VIDCFILE" | wc -c)
-          if [ "$O" -eq "$C" ]; then
-            echo "[✓] 花括号平衡：{ = $O , } = $C"
-          else
-            echo "[✗] 花括号不平衡：{ = $O , } = $C"
-            FAIL=1
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ vidc 补丁自检失败，终止构建"
-            exit 1
-          fi
-          echo "✅ vidc 补丁自检通过"
-
-
-
 
 
       # ==================== 第七步：Docker/LXC 全量配置 ====================
@@ -458,6 +422,42 @@ jobs:
           fi
           python3 "$FIXER" || { echo "❌ 源码级修复未全部生效，终止"; exit 1; }
           echo "✅ 源码级修复校验通过：vidc 4 处嵌套函数已提升、lib/string.c 已补 bcmp/stpcpy"
+
+
+
+      - name: 【校验·修复7】vidc补丁结果自检
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
+          FAIL=0
+          # 1) 回调函数必须在文件作用域（行首无缩进）
+          if grep -q '^static void put_inst_helper(struct kref' "$VIDCFILE"; then
+            echo "[✓] put_inst_helper 已在文件作用域"
+          else
+            echo "[✗] put_inst_helper 未提升到文件作用域"
+            FAIL=1
+          fi
+          # 2) kref_put 调用的上一行不得是单独的 }
+          if grep -B1 'kref_put(&inst->kref, put_inst_helper);' "$VIDCFILE" | grep -q '^}'; then
+            echo "[✗] kref_put 之前存在多余右大括号"
+            FAIL=1
+          else
+            echo "[✓] kref_put 之前无多余右大括号"
+          fi
+          # 3) 全文件花括号必须平衡
+          O=$(tr -cd '{' < "$VIDCFILE" | wc -c)
+          C=$(tr -cd '}' < "$VIDCFILE" | wc -c)
+          if [ "$O" -eq "$C" ]; then
+            echo "[✓] 花括号平衡：{ = $O , } = $C"
+          else
+            echo "[✗] 花括号不平衡：{ = $O , } = $C"
+            FAIL=1
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ vidc 补丁自检失败，终止构建"
+            exit 1
+          fi
+          echo "✅ vidc 补丁自检通过"
 
 
 
