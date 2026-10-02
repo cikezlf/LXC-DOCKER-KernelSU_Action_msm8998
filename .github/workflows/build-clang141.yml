@@ -179,6 +179,22 @@ jobs:
           fi
           echo "✅ 第五步校验通过"
 
+
+      - name: 【第五步补充】还原源码到原始状态（清除缓存携带的旧补丁）
+        id: step5b-restore
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          git checkout -- .
+          DIRTY=$(git status --porcelain -uno)
+          if [ -n "$DIRTY" ]; then
+            echo "❌ 源码仍有未还原的已跟踪文件改动："
+            echo "$DIRTY"
+            exit 1
+          fi
+          echo "[✓] 全部已跟踪文件已还原为原始状态"
+          echo "✅ 第五步补充校验通过"
+
+
       # ==================== 第六步：生成基础配置 ====================
       - name: 【第六步】生成基础内核配置
         id: step6
@@ -205,6 +221,40 @@ jobs:
           echo "✅ 第六步校验通过"
 
 
+      - name: 【校验·修复7重写】vidc补丁结果自检（防止再次引入多余大括号）
+        id: verify-vidc-patch
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
+          FAIL=0
+          # 1) 回调函数必须在文件作用域（行首无缩进）
+          if grep -q '^static void put_inst_helper(struct kref \*kref)' "$VIDCFILE"; then
+            echo "[✓] put_inst_helper 已在文件作用域"
+          else
+            echo "[✗] put_inst_helper 未提升到文件作用域"
+            FAIL=1
+          fi
+          # 2) kref_put 调用的上一行不得是单独的 }
+          if grep -B1 'kref_put(&inst->kref, put_inst_helper);' "$VIDCFILE" | grep -q '^}'; then
+            echo "[✗] kref_put 之前存在多余右大括号，会导致 extraneous closing brace"
+            FAIL=1
+          else
+            echo "[✓] kref_put 之前无多余右大括号"
+          fi
+          # 3) 全文件花括号必须平衡
+          O=$(tr -cd '{' < "$VIDCFILE" | wc -c)
+          C=$(tr -cd '}' < "$VIDCFILE" | wc -c)
+          if [ "$O" -eq "$C" ]; then
+            echo "[✓] 花括号平衡：{ = $O , } = $C"
+          else
+            echo "[✗] 花括号不平衡：{ = $O , } = $C"
+            FAIL=1
+          fi
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ vidc 补丁自检失败，终止构建"
+            exit 1
+          fi
+          echo "✅ vidc 补丁自检通过"
 
 
 
@@ -779,27 +829,6 @@ jobs:
           echo "✅ 修复6校验通过，彻底消除冗余括号导致的致命编译错误"
 
 
-      - name: 【修复Clang兼容7】修复msm_vidc_common.c括号不匹配嵌套函数错误
-        id: fix-vidc-brace
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
-          cp "$VIDCFILE" "$VIDCFILE.bak"
-          # 修复kref_put回调被嵌套在函数内部的错误：在kref_put调用前补全缺失的右大括号
-          sed -i '/kref_put(&inst->kref, put_inst_helper);/i }' "$VIDCFILE"
-          echo "[✓] msm_vidc_common.c括号已补全，put_inst_helper嵌套函数错误已修复"
-
-      - name: 【校验·修复7】vidc文件括号匹配确认
-        run: |
-          VIDCFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/media/platform/msm/vidc/msm_vidc_common.c
-          if grep -B2 "kref_put(&inst->kref, put_inst_helper);" "$VIDCFILE" | grep -q "^}"; then
-            echo "[✓] put_inst_helper调用前已补全右大括号，无嵌套函数问题"
-          else
-            echo "[!] 自动补全失败，兜底禁用vidc模块"
-            echo "CONFIG_MSM_VIDC=n" >> out/.config
-            sed -i "s|CONFIG_MSM_VIDC=.*|# CONFIG_MSM_VIDC is not set|g" out/.config
-          fi
-          echo "✅ 修复7校验通过，vidc模块编译错误已解决"
 
 
 
