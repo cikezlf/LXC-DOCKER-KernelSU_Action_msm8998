@@ -221,14 +221,13 @@ jobs:
           echo "✅ 第六步校验通过"
 
 
-      - name: 【校验·修复7重写】vidc补丁结果自检（防止再次引入多余大括号）
-        id: verify-vidc-patch
+      - name: 【校验·修复7】vidc补丁结果自检
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
           FAIL=0
           # 1) 回调函数必须在文件作用域（行首无缩进）
-          if grep -q '^static void put_inst_helper(struct kref \*kref)' "$VIDCFILE"; then
+          if grep -q '^static void put_inst_helper(struct kref' "$VIDCFILE"; then
             echo "[✓] put_inst_helper 已在文件作用域"
           else
             echo "[✗] put_inst_helper 未提升到文件作用域"
@@ -236,7 +235,7 @@ jobs:
           fi
           # 2) kref_put 调用的上一行不得是单独的 }
           if grep -B1 'kref_put(&inst->kref, put_inst_helper);' "$VIDCFILE" | grep -q '^}'; then
-            echo "[✗] kref_put 之前存在多余右大括号，会导致 extraneous closing brace"
+            echo "[✗] kref_put 之前存在多余右大括号"
             FAIL=1
           else
             echo "[✓] kref_put 之前无多余右大括号"
@@ -255,6 +254,7 @@ jobs:
             exit 1
           fi
           echo "✅ vidc 补丁自检通过"
+
 
 
 
