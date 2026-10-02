@@ -1035,10 +1035,10 @@ jobs:
       # ==================== 第十三步：原生A风格打包流程 ====================
       - name: 准备打包内核
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace
-          if [ -d AnyKernel3 ]; then
-            rm -rf AnyKernel3
-          fi
+          #cd $GITHUB_WORKSPACE/kernel_workspace
+          #if [ -d AnyKernel3 ]; then
+          #  rm -rf AnyKernel3
+          #fi
           git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
