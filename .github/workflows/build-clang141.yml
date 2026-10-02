@@ -303,8 +303,11 @@ jobs:
           add_config "# CONFIG_DRM is not set"
           add_config "# CONFIG_SND_DRIVERS is not set"
           # 禁用存在Clang语法兼容问题的高通老VIDC视频编解码模块，解决嵌套函数编译错误
-          add_config "# CONFIG_MSM_VIDC is not set"
-          add_config "# CONFIG_MSM_VIDC_V4L2 is not set"
+          add_config "CONFIG_MSM_VIDC_V4L2=y"
+          add_config "CONFIG_MSM_VIDC_VMEM=y"
+          add_config "CONFIG_MEDIA_SUPPORT=y"
+          add_config "CONFIG_VIDEO_DEV=y"
+          
           add_config "# CONFIG_MSM_SDE_ROTATOR is not set"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
           
@@ -388,6 +391,24 @@ jobs:
               sed -i '1i # Fix ld.lld empty link error (empty built-in.o fix)\nifeq ($(strip $(obj-y) $(obj-m) $(lib-y)),)\n$(builtin-target):\n\t$(Q)touch $@\nendif' scripts/Makefile.build
           fi
           echo "[✓] 编译器兼容性修复完成，yylloc多重定义+空目录链接错误已彻底修复"
+
+
+      # ==================== 第十步前置2：源码级修复（嵌套函数 + bcmp/stpcpy）====================
+      # 说明：脚本本体放在仓库根目录（与 config.env 同级）的 fix_nested_and_libcalls.py，
+      #       修 4 处 GCC 专有嵌套函数（Clang 不支持）+ 在 lib/string.c 末尾补 bcmp / stpcpy。
+      - name: 【关键修复】去掉Clang不支持的嵌套函数 + 补齐bcmp/stpcpy
+        id: fix-nested-and-libcalls
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          FIXER=$GITHUB_WORKSPACE/fix_nested_and_libcalls.py
+          if [ ! -f "$FIXER" ]; then
+            echo "❌ 缺少补丁脚本 $FIXER"
+            echo "   请把 fix_nested_and_libcalls.py 放到仓库根目录（与 config.env 同级）后重跑"
+            exit 1
+          fi
+          python3 "$FIXER" || { echo "❌ 源码级修复未全部生效，终止"; exit 1; }
+          echo "✅ 源码级修复校验通过：vidc 4 处嵌套函数已提升、lib/string.c 已补 bcmp/stpcpy"
+
 
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
