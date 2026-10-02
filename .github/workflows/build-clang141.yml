@@ -302,7 +302,12 @@ jobs:
           add_config "# CONFIG_DRM_TILCDC is not set"
           add_config "# CONFIG_DRM is not set"
           add_config "# CONFIG_SND_DRIVERS is not set"
+          # 禁用存在Clang语法兼容问题的高通老VIDC视频编解码模块，解决嵌套函数编译错误
+          add_config "# CONFIG_MSM_VIDC is not set"
+          add_config "# CONFIG_MSM_VIDC_V4L2 is not set"
+          add_config "# CONFIG_MSM_SDE_ROTATOR is not set"
           add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+          
           add_config "# CONFIG_MODULE_SIG is not set"
           add_config "# CONFIG_CC_STACKPROTECTOR_STRONG is not set"
           add_config "CONFIG_CC_STACKPROTECTOR_REGULAR=y"
