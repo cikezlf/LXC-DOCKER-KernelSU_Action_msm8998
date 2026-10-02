@@ -377,12 +377,13 @@ jobs:
           echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
           echo "KBUILD_HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
           echo "export HOSTCFLAGS KBUILD_HOSTCFLAGS" >> Makefile
-          # 修复ld.lld空built-in.o链接错误：对空目录先生成空.o文件再链接
-          sed -i 's|^$builtin-target := $(obj)/built-in.o$|\1\n\n# Fix ld.lld empty link error\nifeq ($(strip $(obj-y) $(obj-m) $(lib-y)),)\n$(builtin-target):\n\t$(Q)touch $@\nelse|g' scripts/Makefile.build
-          if grep -q "ifeq (\$(strip \$(obj-y) \$(obj-m) \$(lib-y)),)" scripts/Makefile.build && ! grep -q "endif.*# empty built-in.o fix" scripts/Makefile.build; then
-              echo "endif # empty built-in.o fix" >> scripts/Makefile.build
+          # 修复ld.lld空built-in.o链接错误：对空目录直接生成空文件，不调用链接器
+          # 直接在Makefile.build开头添加空目录处理逻辑，无复杂sed正则，不会报错
+          if ! grep -q "empty built-in.o fix" scripts/Makefile.build; then
+              sed -i '1i # Fix ld.lld empty link error (empty built-in.o fix)\nifeq ($(strip $(obj-y) $(obj-m) $(lib-y)),)\n$(builtin-target):\n\t$(Q)touch $@\nendif' scripts/Makefile.build
           fi
           echo "[✓] 编译器兼容性修复完成，yylloc多重定义+空目录链接错误已彻底修复"
+
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
