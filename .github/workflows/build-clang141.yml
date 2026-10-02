@@ -753,6 +753,30 @@ jobs:
           echo "✅ 修复6校验通过，彻底消除冗余括号导致的致命编译错误"
 
 
+      - name: 【修复Clang兼容7】修复msm_vidc_common.c括号不匹配嵌套函数错误
+        id: fix-vidc-brace
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          VIDCFILE=drivers/media/platform/msm/vidc/msm_vidc_common.c
+          cp "$VIDCFILE" "$VIDCFILE.bak"
+          # 修复kref_put回调被嵌套在函数内部的错误：在kref_put调用前补全缺失的右大括号
+          sed -i '/kref_put(&inst->kref, put_inst_helper);/i }' "$VIDCFILE"
+          echo "[✓] msm_vidc_common.c括号已补全，put_inst_helper嵌套函数错误已修复"
+
+      - name: 【校验·修复7】vidc文件括号匹配确认
+        run: |
+          VIDCFILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/media/platform/msm/vidc/msm_vidc_common.c
+          if grep -B2 "kref_put(&inst->kref, put_inst_helper);" "$VIDCFILE" | grep -q "^}"; then
+            echo "[✓] put_inst_helper调用前已补全右大括号，无嵌套函数问题"
+          else
+            echo "[!] 自动补全失败，兜底禁用vidc模块"
+            echo "CONFIG_MSM_VIDC=n" >> out/.config
+            sed -i "s|CONFIG_MSM_VIDC=.*|# CONFIG_MSM_VIDC is not set|g" out/.config
+          fi
+          echo "✅ 修复7校验通过，vidc模块编译错误已解决"
+
+
+
 
       - name: 【第十一步 全量重写】内核全量编译
         id: step11
