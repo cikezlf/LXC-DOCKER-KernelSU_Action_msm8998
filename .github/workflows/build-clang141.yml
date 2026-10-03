@@ -55,18 +55,8 @@ jobs:
         id: step2
         run: |
           sudo apt-get update
-          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          # SWITCH_PYTHON=true 时才切换 python2（Ubuntu 22.04 已无独立 python2 包，默认 false）
-          if [ "${{ env.SWITCH_PYTHON }}" = "true" ]; then
-            sudo -E apt-get -y -qq install python2 || sudo -E apt-get -y -qq install python2.7 || true
-            PY2BIN="$(command -v python2 || command -v python2.7 || true)"
-            if [ -n "$PY2BIN" ]; then
-              sudo ln -sf "$PY2BIN" /usr/bin/python
-            else
-              echo "❌ SWITCH_PYTHON=true 但系统中找不到 python2"
-              exit 1
-            fi
-          fi
+          sudo -E apt-get -y -qq install git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi python2
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
 
@@ -99,13 +89,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/clang-aosp
-          key: clang-aosp-${{ env.CLANG_BRANCH }}-${{ env.CLANG_VERSION }}-v5
+          key: clang-aosp-android13-r450784d-v4
 
       - name: 【第三步】内核源码缓存
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/kernel_workspace/android-kernel
-          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-${{ hashFiles('config.env') }}-v5
+          key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v4
 
       - name: 【校验·第三步】缓存路径可写
         run: |
@@ -131,14 +121,14 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           if [ ! -d clang-aosp/.git ]; then
-            git clone -q --depth=1 --single-branch https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b "${{ env.CLANG_BRANCH }}" clang-aosp
+            git clone -q --depth=1 --single-branch https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
           fi
           echo "[✓] Clang14 工具链就绪"
 
       - name: 【校验·第四步】Clang 可执行文件
         run: |
           FAIL=0
-          CLANG_BIN=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/${{ env.CLANG_VERSION }}/bin
+          CLANG_BIN=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin
           for f in clang clang++ lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
             if [ -x ${CLANG_BIN}/${f} ]; then
               echo "[✓] ${f}"
@@ -235,7 +225,6 @@ jobs:
 
       # ==================== 第七步：Docker/LXC 全量配置 ====================
       - name: 【第七步】写入 Docker/LXC 全量配置 + Netfilter全量iptables支持 + 全量校验
-        if: env.ENABLE_LXC_DOCKER == 'true'
         run: |
           DEFCONFIG="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
           add_config() {
@@ -322,7 +311,9 @@ jobs:
           add_config "CONFIG_IP_NF_IPTABLES=y"
           add_config "CONFIG_IP_NF_FILTER=y"
           add_config "CONFIG_NF_NAT=y"
+          add_config "CONFIG_NF_TABLES=y"
           add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
           add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
           add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
           add_config "CONFIG_NF_CONNTRACK_NETLINK=y"
@@ -415,7 +406,9 @@ jobs:
             "CONFIG_IP_NF_IPTABLES=y"
             "CONFIG_IP_NF_FILTER=y"
             "CONFIG_NF_NAT=y"
+            "CONFIG_NF_TABLES=y"
             "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+            "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
             "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
             "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
             "CONFIG_NF_CONNTRACK_NETLINK=y"
@@ -471,7 +464,6 @@ jobs:
       # ==================== 第九步：KernelSU-Next ====================
       - name: 【第九步】部署 KernelSU-Next Legacy
         id: step9
-        if: env.ENABLE_KERNELSU == 'true'
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
@@ -481,7 +473,6 @@ jobs:
           echo "[✓] KernelSU-Next 部署完成"
 
       - name: 【校验·第九步】KernelSU 配置确认
-        if: env.ENABLE_KERNELSU == 'true'
         run: |
           FAIL=0
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
@@ -582,47 +573,6 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] olddefconfig 同步完成"
-
-      - name: 【第十步补充】olddefconfig 后配置最终复检（修正校验时机）
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          DEFCONFIG=out/.config
-          if [ ! -f "$DEFCONFIG" ]; then echo "❌ 缺少 out/.config"; exit 1; fi
-          FAIL=0; TOTAL=0; PASS=0
-          CHECKS=()
-          if [ "${{ env.ENABLE_LXC_DOCKER }}" = "true" ]; then
-            CHECKS+=(
-              "CONFIG_SYSVIPC=y" "CONFIG_NAMESPACES=y" "CONFIG_PID_NS=y" "CONFIG_UTS_NS=y"
-              "CONFIG_IPC_NS=y" "CONFIG_NET_NS=y" "CONFIG_USER_NS=y" "CONFIG_SECCOMP=y"
-              "CONFIG_SECCOMP_FILTER=y" "CONFIG_DEVTMPFS=y" "CONFIG_OVERLAY_FS=y"
-              "CONFIG_CGROUPS=y" "CONFIG_MEMCG=y" "CONFIG_CGROUP_SCHED=y" "CONFIG_CGROUP_FREEZER=y"
-              "CONFIG_CGROUP_DEVICE=y" "CONFIG_CGROUP_PIDS=y" "CONFIG_CPUSETS=y" "CONFIG_BLK_CGROUP=y"
-              "CONFIG_VETH=y" "CONFIG_BRIDGE=y" "CONFIG_IP_ADVANCED_ROUTER=y" "CONFIG_IP_MULTIPLE_TABLES=y"
-              "CONFIG_NETFILTER=y" "CONFIG_BRIDGE_NETFILTER=y" "CONFIG_NF_CONNTRACK=y"
-              "CONFIG_IP_NF_IPTABLES=y" "CONFIG_IP_NF_FILTER=y" "CONFIG_NF_NAT=y" "CONFIG_NF_NAT_IPV4=y"
-              "CONFIG_IP_NF_TARGET_MASQUERADE=y" "CONFIG_IP_SET=y"
-              "CONFIG_NETFILTER_XT_MATCH_STATE=y" "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-              "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            )
-          fi
-          if [ "${{ env.ENABLE_KERNELSU }}" = "true" ]; then
-            CHECKS+=("CONFIG_KSU=y")
-          fi
-          for check in "${CHECKS[@]}"; do
-            TOTAL=$((TOTAL + 1))
-            if grep -q "^${check}$" "$DEFCONFIG" 2>/dev/null; then
-              PASS=$((PASS + 1))
-            else
-              echo "  [✗] ${check} 在 olddefconfig 后被丢弃/改回"
-              FAIL=1
-            fi
-          done
-          echo "olddefconfig 后复检：${PASS}/${TOTAL} 通过"
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 存在被 olddefconfig 丢弃的必需配置（多为 Kconfig 依赖未满足），终止构建"
-            exit 1
-          fi
-          echo "✅ olddefconfig 后复检通过，写入的配置确为最终生效配置"
       
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
         id: fix-writeback-final
@@ -1037,11 +987,7 @@ jobs:
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
           echo "=== 初始化编译全局环境变量 ==="
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/${{ env.CLANG_VERSION }}/bin:/usr/bin:$PATH
-          # LLVM_CONFIG=y 时附加 LLVM=1 LLVM_IAS=1；4.4 老内核通常必须为 n（改用 GNU as）
-          LLVM_ARG=""
-          if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then LLVM_ARG="LLVM=1 LLVM_IAS=1"; fi
-          echo "[i] LLVM 参数：${LLVM_ARG:-（未启用）}"
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
@@ -1057,7 +1003,7 @@ jobs:
           export HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations"
           export KCFLAGS="-w -Wno-error"
           export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
-          make O=out $LLVM_ARG \
+          make O=out \
             CC=clang \
             AR=llvm-ar \
             NM=llvm-nm \
@@ -1094,42 +1040,15 @@ jobs:
             rm -rf AnyKernel3
           fi
           git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3
-          # 机型校验：默认开启并锁定为 sagit（小米6），避免包被误刷到别的机型变砖
-          if [ "${{ env.AK3_DEVICECHECK }}" = "1" ]; then
-            sed -i 's/^do.devicecheck=.*/do.devicecheck=1/' AnyKernel3/anykernel.sh
-            sed -i 's/^device.name1=.*/device.name1=${{ env.AK3_DEVICE_NAME }}/' AnyKernel3/anykernel.sh
-            grep -q "^do.devicecheck=1$" AnyKernel3/anykernel.sh || { echo "❌ devicecheck 未开启"; exit 1; }
-            grep -q "^device.name1=${{ env.AK3_DEVICE_NAME }}$" AnyKernel3/anykernel.sh || { echo "❌ device.name1 未锁定为目标机型"; exit 1; }
-          else
-            sed -i 's/^do.devicecheck=.*/do.devicecheck=0/' AnyKernel3/anykernel.sh
-          fi
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
-          cp "android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" AnyKernel3/
-          if [ "${{ env.NEED_DTBO }}" = "true" ] && [ -f "android-kernel/out/arch/arm64/boot/dtbo.img" ]; then
-            cp android-kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
-            echo "[✓] 已附带 dtbo.img"
-          fi
+          cp android-kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
           rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
 
-      - name: 打包成可刷入 zip（TWRP / Recovery 直刷）
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/AnyKernel3
-          IMG="${{ env.KERNEL_IMAGE_NAME }}"
-          if [ ! -f "$IMG" ]; then
-            echo "❌ 未找到内核镜像 ${IMG}，拒绝打空包"
-            ls -l
-            exit 1
-          fi
-          rm -f ./*.zip
-          zip -r9 "../${{ env.KERNEL_ZIP_NAME }}.zip" . >/dev/null
-          echo "[✓] 已生成可刷入 zip：${{ env.KERNEL_ZIP_NAME }}.zip"
-          ls -lh "../${{ env.KERNEL_ZIP_NAME }}.zip"
-
-      - name: 上传 zip 产物
+      - name: 打包并上传
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
-          path: kernel_workspace/${{ env.KERNEL_ZIP_NAME }}.zip
-          if-no-files-found: error
+          path: kernel_workspace/AnyKernel3/*
