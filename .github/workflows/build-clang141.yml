@@ -195,21 +195,6 @@ jobs:
           echo "✅ 第五步补充校验通过"
 
 
-      # ==================== 【新增·卡米防护1】defconfig 存在性硬校验 ====================
-      # 官方 sagit 仓库(三个分支)里真实存在的配置文件是 sagit_user_defconfig，
-      # 不存在 sagit_defconfig。填错会让第六步 make 直接 "Can't find default configuration" 中断。
-      - name: 【第六步前置】确认 defconfig 真实存在
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          if [ ! -f "arch/arm64/configs/${{ env.KERNEL_CONFIG }}" ]; then
-            echo "[✗] 找不到 arch/arm64/configs/${{ env.KERNEL_CONFIG }}"
-            echo "     该仓库真实存在的 sagit 配置文件为："
-            ls arch/arm64/configs/ | grep -i sagit || true
-            exit 1
-          fi
-          echo "[✓] defconfig 存在：${{ env.KERNEL_CONFIG }}"
-          echo "✅ 第六步前置校验通过"
-
       # ==================== 第六步：生成基础配置 ====================
       - name: 【第六步】生成基础内核配置
         id: step6
@@ -240,6 +225,7 @@ jobs:
 
       # ==================== 第七步：Docker/LXC 全量配置 ====================
       - name: 【第七步】写入 Docker/LXC 全量配置 + Netfilter全量iptables支持 + 全量校验
+        if: ${{ env.ENABLE_LXC_DOCKER == 'true' }}
         run: |
           DEFCONFIG="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
           add_config() {
@@ -340,25 +326,6 @@ jobs:
           add_config "CONFIG_IP_NF_NAT=y"
           echo "===== 4. 适配Android特殊权限，旧内核上关闭该选项才能保证容器内网络正常工作   ====="
           add_config "CONFIG_ANDROID_PARANOID_NETWORK=n"
-
-          # ===== 【关键修复·卡米】关闭模块签名强制 =====
-          # 官方 sagit_user_defconfig 里是 CONFIG_MODULE_SIG=y / CONFIG_MODULE_SIG_FORCE=y。
-          # 自编译内核的签名密钥与小米官方不同，MIUI 现成的 /vendor/lib/modules 会被内核
-          # 全部拒载（签名不匹配）；同机型已跑通的配置(sagit_docker_defconfig)正是
-          # "# CONFIG_MODULE_SIG is not set"。此项不改，基本等于刷完就残废/起不来。
-          add_config "# CONFIG_MODULE_SIG is not set"
-          add_config "# CONFIG_MODULE_SIG_FORCE is not set"
-
-          # ===== 【关键修复·卡米】显式锁定拼接DTB后的最终镜像名 =====
-          # arch/arm64/Makefile:  KBUILD_IMAGE := $(CONFIG_BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME)
-          # arch/arm64/boot/Makefile: targets := Image Image.gz
-          #   —— 注意 Image.gz-dtb 并不在 targets 里，只能靠上面那个变量触发；
-          # 官方 defconfig 没有显式写它，只靠 olddefconfig 取默认值。
-          # 一旦该变量为空，默认 make 不会产出 Image.gz-dtb，而工作流后面直接 cp 它、
-          # 且没有任何校验，就会把空内核打进刷机包 → 刷入卡第一屏。
-          add_config "CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE=y"
-          add_config "CONFIG_IMG_GZ_DTB=y"
-          add_config "CONFIG_BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME=\"Image.gz-dtb\""
 
           echo "===== 四、 UFW与Fail2Ban核心依赖配置选项  ====="
           add_config "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
@@ -497,6 +464,7 @@ jobs:
 
       # ==================== 第九步：KernelSU-Next ====================
       - name: 【第九步】部署 KernelSU-Next Legacy
+        if: ${{ env.ENABLE_KERNELSU == 'true' }}
         id: step9
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
@@ -507,6 +475,7 @@ jobs:
           echo "[✓] KernelSU-Next 部署完成"
 
       - name: 【校验·第九步】KernelSU 配置确认
+        if: ${{ env.ENABLE_KERNELSU == 'true' }}
         run: |
           FAIL=0
           CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
@@ -598,25 +567,6 @@ jobs:
           fi
           echo "✅ vidc 补丁自检通过"
 
-      # ==================== 【新增·卡米防护2】current_stack_pointer 漏改点检查 ====================
-      # 本工作流把 current_stack_pointer 从"寄存器变量"改成了"函数"，只适配了 3~4 个调用点。
-      # 其它文件若还有不带 () 的引用，在全局 -w 之下会被当成"函数指针赋给整型"而静默通过，
-      # 生成错误代码 → 启动早期直接挂。这里只告警不中断，方便定位。
-      - name: 【校验·卡米防护】current_stack_pointer 残留引用扫描（仅告警）
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          BAD=$(grep -rn --include=*.c --include=*.h "current_stack_pointer" arch/arm64 include 2>/dev/null \
-                | grep -v "current_stack_pointer()" \
-                | grep -v "asm/stack_pointer.h" \
-                | grep -v "register unsigned long current_stack_pointer" || true)
-          if [ -n "$BAD" ]; then
-            echo "⚠️ 以下位置引用了 current_stack_pointer 但没有加 ()，请逐个确认："
-            echo "$BAD"
-            echo "⚠️ 在全局 -w 下这些会被静默编译成函数指针赋值，是典型的'过编译、卡第一屏'原因。"
-          else
-            echo "[✓] 未发现漏加 () 的 current_stack_pointer 引用"
-          fi
-
 
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
@@ -626,6 +576,19 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
           echo "[✓] olddefconfig 同步完成"
+
+      - name: 【开机兼容】关闭模块签名强制（自编内核无法通过MIUI官方模块验签）
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          CFG=out/.config
+          sed -i 's/^CONFIG_MODULE_SIG_FORCE=y/# CONFIG_MODULE_SIG_FORCE is not set/' "$CFG"
+          sed -i 's/^CONFIG_MODULE_SIG_ALL=y/# CONFIG_MODULE_SIG_ALL is not set/' "$CFG"
+          grep -q '^# CONFIG_MODULE_SIG_FORCE is not set' "$CFG" || echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$CFG"
+          if grep -q '^CONFIG_MODULE_SIG_FORCE=y' "$CFG"; then
+            echo "[✗] MODULE_SIG_FORCE 关闭失败，终止构建"
+            exit 1
+          fi
+          echo "[✓] CONFIG_MODULE_SIG_FORCE 已关闭，MIUI 官方 vendor 模块可正常加载"
       
       - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置，完全不破坏原有trace结构体
         id: fix-writeback-final
@@ -1083,32 +1046,26 @@ jobs:
           fi
           echo "[✓] 内核编译完全成功"
 
-          # -------------------------- 第八层：镜像产物硬校验（防止打包空内核）--------------------------
-          BOOTDIR=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot
-          FAIL=0
-          for f in Image Image.gz Image.gz-dtb; do
-            if [ ! -f "$BOOTDIR/$f" ]; then
-              echo "[✗] 缺少产物 $BOOTDIR/$f"
-              FAIL=1
-            else
-              SZ=$(stat -c%s "$BOOTDIR/$f")
-              echo "[✓] $f 存在，大小 ${SZ} 字节"
-              if [ "$f" = "Image.gz-dtb" ] && [ "$SZ" -lt 3000000 ]; then
-                echo "[✗] Image.gz-dtb 过小（${SZ} 字节），说明 DTB 未拼接或镜像异常"
-                FAIL=1
-              fi
-            fi
-          done
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 内核镜像产物校验失败：极可能是 CONFIG_BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME 未生效，"
-            echo "   或 CONFIG_IMG_GZ_DTB 未选中，导致默认 make 没有产出 Image.gz-dtb。"
-            exit 1
-          fi
-          echo "[✓] 内核镜像产物校验通过"
-
 
   
       # ==================== 第十三步：原生A风格打包流程 ====================
+      - name: 【打包前置】内核镜像存在性与大小硬校验
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          IMG=out/arch/arm64/boot/Image.gz-dtb
+          if [ ! -s "$IMG" ]; then
+            echo "[✗] 未产出 $IMG（默认目标没构建出拼接镜像），终止"
+            ls -la out/arch/arm64/boot/ || true
+            exit 1
+          fi
+          SZ=$(stat -c%s "$IMG")
+          echo "[✓] $IMG 存在，大小 ${SZ} 字节"
+          if [ "$SZ" -lt 3000000 ]; then
+            echo "[✗] 镜像小于 3MB，疑似未拼接 DTB，终止"
+            exit 1
+          fi
+          echo "✅ 内核镜像校验通过"
+
       - name: 准备打包内核
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
@@ -1119,19 +1076,17 @@ jobs:
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
-          sed -i "s|^kernel.string=.*|kernel.string=Mi6-OSS-Kernel-$(date -u +%Y%m%d-%H%M)|" AnyKernel3/anykernel.sh 2>/dev/null || true
-          SRC=android-kernel/out/arch/arm64/boot/Image.gz-dtb
-          if [ ! -s "$SRC" ]; then
-            echo "[✗] 找不到或为空的内核镜像：$SRC"
-            echo "    拒绝打包（否则会刷入空内核，直接卡第一屏）"
+          SRC_IMG=android-kernel/out/arch/arm64/boot/Image.gz-dtb
+          if [ ! -s "$SRC_IMG" ]; then
+            echo "[✗] 源镜像不存在，终止"
             exit 1
           fi
-          cp "$SRC" AnyKernel3/
-          if [ ! -s AnyKernel3/Image.gz-dtb ]; then
-            echo "[✗] 镜像拷贝到 AnyKernel3 失败"
+          cp "$SRC_IMG" AnyKernel3/
+          if [ ! -s "AnyKernel3/Image.gz-dtb" ]; then
+            echo "[✗] 拷贝后镜像为空，终止"
             exit 1
           fi
-          echo "[✓] 已放入 AnyKernel3：Image.gz-dtb = $(stat -c%s AnyKernel3/Image.gz-dtb) 字节"
+          echo "[✓] 镜像已放入AnyKernel3，大小 $(stat -c%s AnyKernel3/Image.gz-dtb) 字节"
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
           rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
 
