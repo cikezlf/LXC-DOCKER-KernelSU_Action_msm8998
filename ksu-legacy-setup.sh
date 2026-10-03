@@ -5,7 +5,7 @@ GKI_ROOT=$(pwd)
 # OWNER="KernelSU-Next"
 # REPO="$OWNER"
 REPO="KernelSU-Next" 
-OWNER="KernelSU-Next"
+OWNER="kaho97"
 
 
 display_usage() {
