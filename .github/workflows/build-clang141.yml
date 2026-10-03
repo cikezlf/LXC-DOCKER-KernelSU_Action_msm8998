@@ -983,7 +983,6 @@ jobs:
           fi
           echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
 
-      
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
           echo ""
           echo "=== 初始化编译全局环境变量 ==="
@@ -992,60 +991,61 @@ jobs:
           export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CROSS_COMPILE_ARM32=/usr/bin/arm-linux-gnueabi-
           echo "[✓] 全量编译环境变量初始化完成"
       
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
           echo "=== 启动Clang全量内核编译 ==="
-          export HOSTCC=gcc
-          export HOSTCXX=g++
-          export HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations"
-          export KCFLAGS="-w -Wno-error"
-          export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
           make O=out \
             CC=clang \
+            LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
-          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+          BUILD_EXIT_CODE=$PIPESTATUS
       
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
           echo "=== 全量错误日志分析 ==="
           grep -n -i "error:" full_build_detail.log || echo "[!] 日志中无显性error标记"
           grep -n -i "undefined reference" full_build_detail.log || echo "[!] 日志中无未定义符号错误"
+          grep -n -i "relocation truncated" full_build_detail.log || echo "[!] 日志中无截断重定位错误"
           grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
+          grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
+          grep -n -i "implicit-function-declaration" full_build_detail.log || echo "[!] 日志中无隐式函数声明相关告警"
+          grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
+          grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
+          grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
+          grep -n -i "compat_ptr" full_build_detail.log || echo "[!] 日志中无compat_ptr相关错误"
 
       
           # -------------------------- 第七层：编译结果状态判定 --------------------------
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
-            echo "=== 最后150行完整编译日志 ==="
-            tail -150 full_build_detail.log
+            echo "=== 最后100行完整编译日志 ==="
+            tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功"
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
+
 
 
   
-      # ==================== 第十三步：原生A风格打包流程 ====================
+      # ==================== 第十三步：原生A风格打包流程 ====================\
       - name: 准备打包内核
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          if [ -d AnyKernel3 ]; then
-            rm -rf AnyKernel3
-          fi
-          git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
           sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
           sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
           cp android-kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
-          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
+          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/path
 
       - name: 打包并上传
         uses: actions/upload-artifact@v4
