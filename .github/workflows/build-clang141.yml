@@ -159,14 +159,35 @@ jobs:
 
           echo "[✓] Docker 防卡米兼容配置修改完成"
 
-      # ==================== 第九步：部署 KernelSU ====================
+      # ==================== 第九步：KernelSU-Next / KernelSU ====================
       - name: 【第九步】部署 KernelSU
         if: ${{ env.ENABLE_KERNELSU == 'true' }}
+        id: step9
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          curl -LSs "https://raw.githubusercontent.com/rifscall/KernelSU-Next/next-legacy/kernel/setup.sh" | bash -s main
-          echo "CONFIG_KSU=y" >> out/.config
+          if [ -f $GITHUB_WORKSPACE/ksu-legacy-setup.sh ]; then
+            cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
+            chmod 755 ksu-legacy-setup.sh
+            ./ksu-legacy-setup.sh
+          else
+            echo "[!] 未在根目录找到 ksu-legacy-setup.sh，尝试自动获取官方 KernelSU-Next Legacy 安装逻辑"
+            curl -LSs "https://raw.githubusercontent.com/rifscall/KernelSU-Next/next-legacy/kernel/setup.sh" | bash -s main
+          fi
+          grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
           echo "[✓] KernelSU 部署完成"
+
+      - name: 【校验·第九步】KernelSU 配置确认
+        if: ${{ env.ENABLE_KERNELSU == 'true' }}
+        run: |
+          FAIL=0
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          grep -q "^CONFIG_KSU=y$" "$CONFIG_FILE" 2>/dev/null && echo "[✓] CONFIG_KSU=y" || { echo "[✗] CONFIG_KSU=y 缺失"; FAIL=1; }
+          [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu" ] || [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/KernelSU" ] && echo "[✓] KernelSU 驱动目录存在" || { echo "[✗] 驱动目录缺失"; FAIL=1; }
+          if [ $FAIL -eq 1 ]; then
+            echo "❌ 第九步校验失败，终止"
+            exit 1
+          fi
+          echo "✅ 第九步校验通过"
 
       # ==================== 第十步：兼容性修复 ====================
       - name: 【第十步前置】修复 GCC11/Clang 语法与头文件兼容性
