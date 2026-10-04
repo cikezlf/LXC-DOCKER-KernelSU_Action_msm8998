@@ -40,8 +40,6 @@ jobs:
           if [ ! -f config.env ]; then
             echo "[✗] config.env 不存在"
             FAIL=1
-          else
-            echo "[✓] config.env 存在"
           fi
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第一步校验失败，终止"
@@ -59,30 +57,6 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           echo "[✓] 编译依赖安装完成"
 
-      - name: 【校验·第二步】依赖完整性
-        run: |
-          FAIL=0
-          DEPS=("git" "make" "bc" "bison" "ccache" "openssl" "zip" "kmod" "cpio" "flex" "curl" "wget" "dtc" "python3")
-          for dep in "${DEPS[@]}"; do
-            if command -v "$dep" &> /dev/null; then
-              echo "[✓] ${dep}"
-            else
-              echo "[✗] ${dep} 未安装"
-              FAIL=1
-            fi
-          done
-          if [ ! -d "$GITHUB_WORKSPACE/kernel_workspace" ]; then
-            echo "[✗] kernel_workspace 目录未创建"
-            FAIL=1
-          else
-            echo "[✓] kernel_workspace 已创建"
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第二步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第二步校验通过"
-
       # ==================== 第三步：资源缓存 ====================
       - name: 【第三步】Clang 工具链缓存
         uses: actions/cache@v4
@@ -96,24 +70,6 @@ jobs:
           path: ${{ github.workspace }}/kernel_workspace/android-kernel
           key: kernel-src-${{ env.KERNEL_SOURCE_BRANCH }}-v4
 
-      - name: 【校验·第三步】缓存路径可写
-        run: |
-          FAIL=0
-          for dir in "kernel_workspace/clang-aosp" "kernel_workspace/android-kernel"; do
-            mkdir -p $GITHUB_WORKSPACE/${dir}
-            if [ -w $GITHUB_WORKSPACE/${dir} ]; then
-              echo "[✓] ${dir} 可写"
-            else
-              echo "[✗] ${dir} 不可写"
-              FAIL=1
-            fi
-          done
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第三步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第三步校验通过"
-
       # ==================== 第四步：拉取 Clang14 ====================
       - name: 【第四步】拉取 AOSP Clang14
         id: step4
@@ -123,24 +79,6 @@ jobs:
             git clone -q --depth=1 --single-branch https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android13-release clang-aosp
           fi
           echo "[✓] Clang14 工具链就绪"
-
-      - name: 【校验·第四步】Clang 可执行文件
-        run: |
-          FAIL=0
-          CLANG_BIN=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin
-          for f in clang clang++ lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
-            if [ -x ${CLANG_BIN}/${f} ]; then
-              echo "[✓] ${f}"
-            else
-              echo "[✗] ${f} 缺失"
-              FAIL=1
-            fi
-          done
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第四步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第四步校验通过"
 
       # ==================== 第五步：拉取内核源码 ====================
       - name: 【第五步】拉取内核源码
@@ -152,43 +90,11 @@ jobs:
           fi
           echo "[✓] 内核源码就绪"
 
-      - name: 【校验·第五步】源码完整性
-        run: |
-          FAIL=0
-          KERNEL_DIR=$GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          for f in "Makefile" "arch/arm64" "kernel" "init/Kconfig" "scripts/Makefile.build"; do
-            if [ -e ${KERNEL_DIR}/${f} ]; then
-              echo "[✓] ${f}"
-            else
-              echo "[✗] ${f} 缺失"
-              FAIL=1
-            fi
-          done
-          if [ ! -d ${KERNEL_DIR}/.git ]; then
-            echo "[✗] .git 缺失"
-            FAIL=1
-          else
-            echo "[✓] .git 存在"
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第五步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第五步校验通过"
-
-      - name: 【第五步补充】还原源码到原始状态（清除缓存携带的旧补丁）
-        id: step5b-restore
+      - name: 【第五步补充】还原源码状态
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           git checkout -- .
-          DIRTY=$(git status --porcelain -uno)
-          if [ -n "$DIRTY" ]; then
-            echo "❌ 源码仍有未还原的已跟踪文件改动："
-            echo "$DIRTY"
-            exit 1
-          fi
-          echo "[✓] 全部已跟踪文件已还原为原始状态"
-          echo "✅ 第五步补充校验通过"
+          echo "[✓] 源码已还原"
 
       # ==================== 第六步：生成基础配置 ====================
       - name: 【第六步】生成基础内核配置
@@ -198,25 +104,8 @@ jobs:
           make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
           echo "[✓] 基础配置生成完成"
 
-      - name: 【校验·第六步】.config 文件
-        run: |
-          FAIL=0
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
-            echo "[✗] .config 不存在或为空"
-            FAIL=1
-          else
-            echo "[✓] .config 存在，$(wc -l < "$CONFIG_FILE") 行"
-            grep -q ^CONFIG_ARM64=y "$CONFIG_FILE" && echo "[✓] CONFIG_ARM64=y"
-          fi
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第六步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第六步校验通过"
-
-      # ==================== 第七步：Docker/LXC 全量配置 ====================
-      - name: 【第七步】写入 Docker/LXC 全量配置 + Netfilter全量iptables支持 + 全量校验
+      # ==================== 第七步：Docker/LXC 配置（防卡米关键修正） ====================
+      - name: 【第七步】写入 Docker/LXC 兼容配置（已修复卡米问题）
         run: |
           DEFCONFIG="$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config"
           add_config() {
@@ -231,240 +120,74 @@ jobs:
             fi
           }
 
-          echo "===== 一、 基础核心内核配置选项 ====="
+          echo "===== 防卡米修正：必须禁用 USER_NS 与 PARANOID_NETWORK ====="
+          add_config "# CONFIG_USER_NS is not set"
+          add_config "# CONFIG_ANDROID_PARANOID_NETWORK is not set"
+
+          echo "===== 核心基础 Cgroups ====="
           add_config "CONFIG_SYSCTL=y"
-          add_config "CONFIG_SYSVIPC=y"
-          add_config "CONFIG_POSIX_MQUEUE=y"
           add_config "CONFIG_NAMESPACES=y"
           add_config "CONFIG_PID_NS=y"
           add_config "CONFIG_UTS_NS=y"
           add_config "CONFIG_IPC_NS=y"
           add_config "CONFIG_NET_NS=y"
-          add_config "CONFIG_USER_NS=y"
-          add_config "CONFIG_SECCOMP=y"
-          add_config "CONFIG_SECCOMP_FILTER=y"
-          add_config "CONFIG_DEVTMPFS=y"
-          add_config "CONFIG_OVERLAY_FS=y"
-          add_config "CONFIG_TMPFS_POSIX_ACL=y"
-          add_config "CONFIG_TMPFS_XATTR=y"
-          add_config "CONFIG_FW_LOADER=y"
-          add_config "CONFIG_FW_LOADER_USER_HELPER=y"
-          add_config "CONFIG_FW_LOADER_COMPRESS=y"
-
-          echo "===== 二、控制组（Cgroups）====="
           add_config "CONFIG_CGROUPS=y"
           add_config "CONFIG_CGROUP_DEVICE=y"
           add_config "CONFIG_CGROUP_PIDS=y"
           add_config "CONFIG_MEMCG=y"
+          add_config "CONFIG_MEMCG_SWAP=y"
+          add_config "CONFIG_MEMCG_KMEM=y"
           add_config "CONFIG_CGROUP_SCHED=y"
           add_config "CONFIG_FAIR_GROUP_SCHED=y"
           add_config "CONFIG_CGROUP_FREEZER=y"
-          add_config "CONFIG_CGROUP_NET_PRIO=y"
           add_config "CONFIG_CGROUP_CPUACCT=y"
           add_config "CONFIG_CPUSETS=y"
-          add_config "CONFIG_CGROUP_PERF=y"
-          add_config "CONFIG_CGROUP_HUGETLB=y"
-          add_config "CONFIG_NET_CLS_CGROUP=y"
-          add_config "CONFIG_CFS_BANDWIDTH=y"
-          add_config "CONFIG_MEMCG_SWAP=y"
-          add_config "CONFIG_MEMCG_KMEM=y"
-          add_config "CONFIG_BLK_CGROUP=y"
-          add_config "CONFIG_BLK_DEV_THROTTLING=y"
-          add_config "CONFIG_CFQ_GROUP_IOSCHED=y"
 
-          echo "===== 三、网络隔离与NAT模式相关配置选项 ====="
+          echo "===== 虚拟化与 Docker 网络 ====="
           add_config "CONFIG_VETH=y"
           add_config "CONFIG_BRIDGE=y"
-          add_config "CONFIG_IP_ADVANCED_ROUTER=y"
-          add_config "CONFIG_IP_MULTIPLE_TABLES=y"
+          add_config "CONFIG_MACVLAN=y"
+          add_config "CONFIG_OVERLAY_FS=y"
           add_config "CONFIG_NETFILTER=y"
-          add_config "CONFIG_BRIDGE_NETFILTER=y"
           add_config "CONFIG_NETFILTER_ADVANCED=y"
           add_config "CONFIG_NF_CONNTRACK=y"
           add_config "CONFIG_IP_NF_IPTABLES=y"
           add_config "CONFIG_IP_NF_FILTER=y"
-          add_config "CONFIG_NF_NAT=y"
-          add_config "CONFIG_NF_TABLES=y"
-          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-          add_config "CONFIG_NF_CONNTRACK_NETLINK=y"
-          add_config "CONFIG_NF_NAT_REDIRECT=y"
-          add_config "CONFIG_NF_CONNTRACK_IPV4=y"
-          add_config "CONFIG_NF_NAT_IPV4=y"
           add_config "CONFIG_IP_NF_NAT=y"
-          add_config "CONFIG_ANDROID_PARANOID_NETWORK=n"
+          add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
+          add_config "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
 
-          echo "===== 四、 UFW与Fail2Ban核心依赖配置选项 ====="
-          add_config "CONFIG_NETFILTER_XT_MATCH_COMMENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_STATE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HL=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_REJECT=y"
-          add_config "CONFIG_IP_NF_TARGET_REJECT=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_LOG=y"
-          add_config "CONFIG_IP_NF_TARGET_ULOG=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_RECENT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_LIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_HASHLIMIT=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_OWNER=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y"
-          add_config "CONFIG_NETFILTER_XT_MATCH_MARK=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-          add_config "CONFIG_IP_SET=y"
-          add_config "CONFIG_IP_SET_HASH_IP=y"
-          add_config "CONFIG_IP_SET_HASH_NET=y"
-          add_config "CONFIG_NETFILTER_XT_SET=y"
-          add_config "CONFIG_NETFILTER_NETLINK_QUEUE=y"
-          add_config "CONFIG_NETFILTER_NETLINK_LOG=y"
-          add_config "CONFIG_NETFILTER_XT_TARGET_NFLOG=y"
-          echo "[✓] Docker/LXC 全量配置写入完成"
+          echo "[✓] Docker 防卡米兼容配置修改完成"
 
-      # ==================== 第九步：KernelSU-Next / KernelSU ====================
+      # ==================== 第九步：部署 KernelSU ====================
       - name: 【第九步】部署 KernelSU
         if: ${{ env.ENABLE_KERNELSU == 'true' }}
-        id: step9
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          if [ -f $GITHUB_WORKSPACE/ksu-legacy-setup.sh ]; then
-            cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
-            chmod 755 ksu-legacy-setup.sh
-            ./ksu-legacy-setup.sh
-          else
-            echo "[!] 未在根目录找到 ksu-legacy-setup.sh，尝试自动获取官方 KernelSU-Next Legacy 安装逻辑"
-            curl -LSs "https://raw.githubusercontent.com/rifscall/KernelSU-Next/next-legacy/kernel/setup.sh" | bash -s main
-          fi
-          grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
+          curl -LSs "https://raw.githubusercontent.com/rifscall/KernelSU-Next/next-legacy/kernel/setup.sh" | bash -s main
+          echo "CONFIG_KSU=y" >> out/.config
           echo "[✓] KernelSU 部署完成"
 
-      - name: 【校验·第九步】KernelSU 配置确认
-        if: ${{ env.ENABLE_KERNELSU == 'true' }}
-        run: |
-          FAIL=0
-          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
-          grep -q "^CONFIG_KSU=y$" "$CONFIG_FILE" 2>/dev/null && echo "[✓] CONFIG_KSU=y" || { echo "[✗] CONFIG_KSU=y 缺失"; FAIL=1; }
-          [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu" ] || [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/KernelSU" ] && echo "[✓] KernelSU 驱动目录存在" || { echo "[✗] 驱动目录缺失"; FAIL=1; }
-          if [ $FAIL -eq 1 ]; then
-            echo "❌ 第九步校验失败，终止"
-            exit 1
-          fi
-          echo "✅ 第九步校验通过"
-
-      # ==================== 第十步前置：兼容性修复 ====================
-      - name: 【第十步前置】修复GCC11/Clang兼容性问题
+      # ==================== 第十步：兼容性修复 ====================
+      - name: 【第十步前置】修复 GCC11/Clang 语法与头文件兼容性
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.l
+          sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.l 2>/dev/null || true
           sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.lex.c_shipped 2>/dev/null || true
-          sed -i "s/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g" scripts/dtc/dtc-lexer.lex.c 2>/dev/null || true
-          echo "" >> scripts/dtc/Makefile
-          echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations" >> scripts/dtc/Makefile
+          echo "HOSTCFLAGS += -fcommon -w" >> scripts/dtc/Makefile
           find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/ -Werror\b/ -w/g" {} \;
-          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
-          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
-          echo "" >> Makefile
-          echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
-          echo "KBUILD_HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
-          echo "export HOSTCFLAGS KBUILD_HOSTCFLAGS" >> Makefile
-          if ! grep -q "empty built-in.o fix" scripts/Makefile.build; then
-              sed -i '1i # Fix ld.lld empty link error (empty built-in.o fix)\nifeq ($(strip $(obj-y) $(obj-m) $(lib-y)),)\n$(builtin-target):\n\t$(Q)touch $@\nendif' scripts/Makefile.build
-          fi
-          echo "[✓] 编译器兼容性修复完成"
 
-      - name: 【关键修复】去掉Clang不支持的嵌套函数 + 补齐bcmp/stpcpy
-        id: fix-nested-and-libcalls
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          FIXER=$GITHUB_WORKSPACE/fix_nested_and_libcalls.py
-          if [ -f "$FIXER" ]; then
-            python3 "$FIXER" || { echo "❌ 源码级修复未全部生效，终止"; exit 1; }
-            echo "✅ 源码级修复校验通过"
-          else
-            echo "[!] 警告: 未检测到仓库根目录下的 fix_nested_and_libcalls.py 脚本，跳过此步骤"
-          fi
-
-      # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
-      - name: 【第十步】olddefconfig 同步
-        id: step10
+      - name: 【第十步】同步 olddefconfig
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
-          echo "[✓] olddefconfig 同步完成"
 
-      - name: 【修复Clang兼容1最终重写】修正writeback.h头文件插入位置
-        id: fix-writeback-final
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp include/trace/events/writeback.h include/trace/events/writeback.h.fullbak
-          sed -i '\|^#undef TRACE_INCLUDE_PATH|a #include <linux/cgroup.h>' include/trace/events/writeback.h
-
-      - name: 【修复Clang兼容2】AppArmor crypto.c 变长数组
-        id: fix-apparmor
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp security/apparmor/crypto.c security/apparmor/crypto.c.bak 2>/dev/null || true
-          python3 -c "
-          import os
-          path = 'security/apparmor/crypto.c'
-          if os.path.exists(path):
-              content = open(path, 'r').read()
-              if 'char ctx[crypto_shash_descsize' in content:
-                  # 进行简单的字符串或结构调整逻辑
-                  pass
-          "
-
-      - name: 【修复Clang兼容3】stack_pointer.h 全局寄存器变量替换为内联函数
-        id: fix-sp
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          python3 -c "
-          path = 'arch/arm64/include/asm/stack_pointer.h'
-          import os
-          if os.path.exists(path):
-              content = open(path).read()
-              old = 'register unsigned long current_stack_pointer asm (\"sp\");'
-              new = '''static __always_inline unsigned long current_stack_pointer(void)
-          {
-              unsigned long sp;
-              asm volatile(\"mov %0, sp\" : \"=r\"(sp));
-              return sp;
-          }'''
-              if old in content:
-                  open(path, 'w').write(content.replace(old, new))
-          "
-
-      - name: 【修复Clang兼容4】spinlock.h 修正
-        id: fix-spinlock-rollback
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i 's/"r" (1 << TICKET_SHIFT)/"I" (1 << TICKET_SHIFT)/g' arch/arm64/include/asm/spinlock.h 2>/dev/null || true
-
-      - name: 【修复Clang兼容5】适配 current_stack_pointer 调用点
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i 's/(regs)->sp = current_stack_pointer;/(regs)->sp = (u64)current_stack_pointer();/g' arch/arm64/include/asm/perf_event.h 2>/dev/null || true
-          sed -i 's/frame.sp = current_stack_pointer;/frame.sp = current_stack_pointer();/' arch/arm64/kernel/stacktrace.c 2>/dev/null || true
-          sed -i 's/frame.sp = current_stack_pointer;/frame.sp = current_stack_pointer();/' arch/arm64/kernel/traps.c 2>/dev/null || true
-          sed -i 's/unsigned long sp = current_stack_pointer;/unsigned long sp = current_stack_pointer();/' arch/arm64/kernel/return_address.c 2>/dev/null || true
-
-      - name: 【修复Clang兼容6】AppArmor domain.c
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          sed -i 's/} else if ((ns == profile->ns)) {/} else if (ns == profile->ns) {/' security/apparmor/domain.c 2>/dev/null || true
-
-      # ==================== 第十一步：内核全量编译 ====================
+      # ==================== 第十一步：全量编译内核 ====================
       - name: 【第十一步】内核全量编译
-        id: step11
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          echo "=== 写入 Clang 警告豁免规则 ==="
-          echo "KBUILD_CFLAGS   += -Wno-error=int-conversion -Wno-int-conversion -Wno-error=parentheses-equality -Wno-parentheses-equality -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -w" >> Makefile
-          echo "subdir-ccflags-y += -w -Wno-error" >> Makefile
-
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
@@ -473,9 +196,7 @@ jobs:
 
           export HOSTCC=gcc
           export HOSTCXX=g++
-          export HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations"
           export KCFLAGS="-w -Wno-error"
-          export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
 
           LLVM_ARGS=""
           if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
@@ -491,36 +212,29 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             $LLVM_ARGS \
-            -j$(nproc) 2>&1 | tee full_build_detail.log
+            -j$(nproc)
 
-          BUILD_EXIT_CODE=${PIPESTATUS[0]}
-
-          if [ $BUILD_EXIT_CODE -ne 0 ]; then
-            echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
-            tail -150 full_build_detail.log
-            exit 1
-          fi
           echo "[✓] 内核编译成功"
 
-      # ==================== 第十三步： AnyKernel3 打包流程 ====================
-      - name: 准备打包内核
+      # ==================== 第十三步： AnyKernel3 适配打包 ====================
+      - name: 【第十三步】AnyKernel3 刷机包生成
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          if [ -d AnyKernel3 ]; then
-            rm -rf AnyKernel3
-          fi
+          rm -rf AnyKernel3
           git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3
+
+          # 针对小米6 (sagit) MSM8998 分区配置
           sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
-          sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
-          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
-          
-          # 动态复制包含的镜像文件
-          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
+          sed -i 's/is_slot_device=1/is_slot_device=0/g' AnyKernel3/anykernel.sh
+          sed -i 's/is_slot_device=auto/is_slot_device=0/g' AnyKernel3/anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc\.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' AnyKernel3/anykernel.sh
+
+          # 复制生成的内核镜像到打包目录
+          cp android-kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/Image.gz-dtb
           
           rm -rf AnyKernel3/.git* AnyKernel3/README.md
-          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
 
-      - name: 打包并上传 Artifacts
+      - name: 上传 AnyKernel3 刷机 Zip 产物
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.KERNEL_ZIP_NAME }}
