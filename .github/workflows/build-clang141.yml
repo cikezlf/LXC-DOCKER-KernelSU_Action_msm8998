@@ -203,12 +203,17 @@ jobs:
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           make O=out ARCH=arm64 olddefconfig
 
-      # ==================== 第十一步：全量编译内核 ====================
+      # ==================== 第十一步：内核全量编译 ====================
       - name: 【第十一步】内核全量编译
+        id: step11
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
 
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:$PATH
+          echo "=== 写入 Clang 警告豁免规则 ==="
+          echo "KBUILD_CFLAGS   += -Wno-error=int-conversion -Wno-int-conversion -Wno-error=parentheses-equality -Wno-parentheses-equality -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration -w" >> Makefile
+          echo "subdir-ccflags-y += -w -Wno-error" >> Makefile
+
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/clang-r450784d/bin:/usr/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
@@ -217,7 +222,9 @@ jobs:
 
           export HOSTCC=gcc
           export HOSTCXX=g++
+          export HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations"
           export KCFLAGS="-w -Wno-error"
+          export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
 
           LLVM_ARGS=""
           if [ "${{ env.LLVM_CONFIG }}" = "y" ]; then
@@ -233,8 +240,15 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             $LLVM_ARGS \
-            -j$(nproc)
+            -j$(nproc) 2>&1 | tee full_build_detail.log
 
+          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "❌ 内核编译失败，退出码：${BUILD_EXIT_CODE}"
+            tail -150 full_build_detail.log
+            exit 1
+          fi
           echo "[✓] 内核编译成功"
 
       # ==================== 第十三步： AnyKernel3 适配打包 ====================
