@@ -495,10 +495,10 @@ jobs:
           echo "" >> scripts/dtc/Makefile
           echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations" >> scripts/dtc/Makefile
           # 全局替换-Werror为-w，只替换独立的-Werror，不破坏其他Werror开头的选项
-          find . -type f $ -name Makefile -o -name Kbuild $ -exec sed -i "s/ -Werror\b/ -w/g" {} \;
+          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/ -Werror\b/ -w/g" {} \;
           # 修复所有非法无等号的Wno-error选项
-          find . -type f $ -name Makefile -o -name Kbuild $ -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
-          find . -type f $ -name Makefile -o -name Kbuild $ -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
+          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-w-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
+          find . -type f \( -name Makefile -o -name Kbuild \) -exec sed -i "s/-Wno-error-implicit-function-declaration/-Wno-error=implicit-function-declaration/g" {} \;
           # 全局顶层Makefile预加HOSTCFLAGS，修复ld.lld空目录链接兼容性问题
           echo "" >> Makefile
           echo "HOSTCFLAGS += -fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations" >> Makefile
@@ -597,7 +597,7 @@ jobs:
           fi
 
 
-
+      
       - name: 【校验·修复1最终重写】writeback.h结构完整性确认
         run: |
           HEADER=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/include/trace/events/writeback.h
@@ -936,6 +936,8 @@ jobs:
 
 
 
+
+
       - name: 【第十一步 全量重写】内核全量编译
         id: step11
         run: |
@@ -1030,54 +1032,23 @@ jobs:
 
 
   
-      # ==================== 第十三步：生成 boot.img ====================
-      # 说明：内核编译产物只是 Image.gz-dtb（纯内核镜像），不是 boot.img。
-      #       boot.img = 头部 + 内核 + ramdisk，所以必须补上 ramdisk 才能得到可刷入的 boot.img。
-      #       这里以「与设备同版本的官方 boot.img」为模板（ramdisk 和头部参数零猜测）。
-      #       请把官方 boot.img 放到仓库根目录，命名为 stock_boot.img。
-      - name: 【第十三步】用官方 boot.img 为模板生成 boot.img
-        id: step13
+      # ==================== 第十三步：原生A风格打包流程 ====================
+      - name: 准备打包内核
         run: |
-          set -e
           cd $GITHUB_WORKSPACE/kernel_workspace
-          rm -rf boot_work && mkdir -p boot_work && cd boot_work
-
-          # 1) 放入官方 boot.img 作为模板
-          if [ ! -f "$GITHUB_WORKSPACE/stock_boot.img" ]; then
-            echo "❌ 未找到 $GITHUB_WORKSPACE/stock_boot.img"
-            echo "   请把与设备同版本的官方 boot.img 放到仓库根目录并改名 stock_boot.img"
-            exit 1
+          if [ -d AnyKernel3 ]; then
+            rm -rf AnyKernel3
           fi
-          cp "$GITHUB_WORKSPACE/stock_boot.img" ./boot.img
+          git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
+          sed -i 's!/dev/block/platform/omap/omap_hsmmc\.0!/dev/block/bootdevice!g' AnyKernel3/anykernel.sh
+          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
+          cp android-kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          rm -rf AnyKernel3/.git* AnyKernel3/README.md
+          rm -rf AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
 
-          # 2) 安装 abootimg（Ubuntu 自带包，自动解析原镜像全部头部参数）
-          sudo apt-get install -y -qq abootimg
-
-          # 3) 解开官方 boot.img：得到 zImage / initrd.img / bootimg.cfg
-          abootimg -x boot.img
-          echo "=== 官方 boot.img 头部参数（pagesize / 各 offset / cmdline 都在这里） ==="
-          cat bootimg.cfg
-
-          # 4) 用本次编译的内核替换 zImage（Image.gz-dtb 已内含 dtb）
-          NEW_KERNEL=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/arch/arm64/boot/Image.gz-dtb
-          if [ ! -f "$NEW_KERNEL" ]; then
-            echo "❌ 未找到编译产出的内核：$NEW_KERNEL"
-            exit 1
-          fi
-          cp "$NEW_KERNEL" zImage
-
-          # 5) 按原参数重新打包 boot.img
-          abootimg --create boot-new.img -f bootimg.cfg -k zImage -r initrd.img
-          mv boot-new.img boot.img
-
-          # 6) 汇总产物
-          mkdir -p "$GITHUB_WORKSPACE/out_artifact"
-          cp boot.img "$GITHUB_WORKSPACE/out_artifact/boot.img"
-          echo "=== 生成的 boot.img ==="
-          ls -lh "$GITHUB_WORKSPACE/out_artifact/boot.img"
-
-      - name: 上传 boot.img
+      - name: 打包并上传
         uses: actions/upload-artifact@v4
         with:
-          name: boot.img
-          path: out_artifact/boot.img
+          name: ${{ env.KERNEL_ZIP_NAME }}
+          path: kernel_workspace/AnyKernel3/*
