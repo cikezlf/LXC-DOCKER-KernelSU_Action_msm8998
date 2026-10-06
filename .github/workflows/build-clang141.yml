@@ -1160,16 +1160,20 @@ jobs:
           # -------------------------- 第五层：启动全量内核编译 --------------------------
           echo ""
           echo "=== 启动Clang全量内核编译 ==="
+          export HOSTCC=gcc
+          export HOSTCXX=g++
+          export HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations -Wno-error=deprecated-declarations"
+          export KCFLAGS="-w -Wno-error"
+          export KBUILD_HOSTCFLAGS="-fcommon -w -Wno-deprecated-declarations"
           make O=out \
             CC=clang \
-            LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             -j$(nproc) 2>&1 | tee full_build_detail.log
-          BUILD_EXIT_CODE=$PIPESTATUS
+          BUILD_EXIT_CODE=${PIPESTATUS[0]}
       
           # -------------------------- 第六层：全量编译错误日志抓取 --------------------------
           echo ""
