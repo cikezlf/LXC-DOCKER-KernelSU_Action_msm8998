@@ -307,7 +307,7 @@ jobs:
           add_config "CONFIG_OVERLAY_FS=y"
           
           # Enable xattr, posix acl support on tmpfs
-          # For NixOS support"
+          # For NixOS support
           add_config "CONFIG_TMPFS_POSIX_ACL=y"
           add_config "CONFIG_TMPFS_XATTR=y"
           
@@ -327,7 +327,7 @@ jobs:
           add_config "CONFIG_IP_NF_IPTABLES=y"
           add_config "CONFIG_IP_NF_FILTER=y"
           add_config "CONFIG_NF_NAT=y"
-          CONFIG_NF_TABLES=y"
+          add_config "CONFIG_NF_TABLES=y"
           add_config "CONFIG_IP_NF_TARGET_MASQUERADE=y"
           add_config "CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y"
           add_config "CONFIG_NETFILTER_XT_TARGET_TCPMSS=y"
