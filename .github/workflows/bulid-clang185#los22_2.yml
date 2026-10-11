@@ -177,14 +177,20 @@ jobs:
             exit 1
           fi
           echo "✅ 第五步校验通过"
-
+          
       # ==================== 第六步：生成基础配置 ====================
       - name: 【第六步】生成基础内核配置
         id: step6
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}
-          echo "[✓] 基础配置生成完成"
+          make O=out ARCH=arm64 ${{ env.KERNEL_CONFIG }}     # ← 它插在这一行之后
+          # lineage-21.0 起，官方把设备配置拆成...（注释）
+          if [ -f arch/arm64/configs/vendor/xiaomi/sagit.config ]; then
+            cat arch/arm64/configs/vendor/xiaomi/sagit.config >> out/.config
+            echo "[✓] 已合并 sagit 设备片段 arch/arm64/configs/vendor/xiaomi/sagit.config"
+          fi
+          echo "[✓] 基础配置生成完成"                        # ← 它插在这一行之前
+
 
       - name: 【校验·第六步】.config 文件
         run: |
