@@ -1,4 +1,4 @@
-name: 小米6全功能内核·Docker/LXC/KernelSU稳定版
+name: 小米6los20.0全功能内核·Docker/LXC/KernelSU稳定版
 on:
   workflow_dispatch:
 
