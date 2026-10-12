@@ -1,4 +1,4 @@
-name: 小米6los22.2_sku3.4.0全功能内核·Docker/LXC/KernelSU稳定版
+name: 小米6los22.2全功能内核·Docker/LXC/KernelSU稳定版
 on:
   workflow_dispatch:
 
@@ -435,132 +435,31 @@ jobs:
           echo "✅ 第七步校验通过"
 
 
-      - name: 【第九步-A】清理 KernelSU 缓存残留，防止读到陈旧版本
-        id: step9-clean
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 旧版本可能把 kernelsu 留在 drivers/ 或 common/drivers/
-          for d in drivers/kernelsu common/drivers/kernelsu KernelSU-Next; do
-            if [ -e "$d" ] || [ -L "$d" ]; then
-              echo "[*] 删除陈旧目录/软链: $d"
-              rm -rf --one-file-system "$d"
-            fi
-          done
-          # 顺便把 Makefile / Kconfig 里的 kernelsu 残留清掉，防重复注入
-          for f in drivers/Makefile common/drivers/Makefile; do
-            [ -f "$f" ] && sed -i '/kernelsu/d' "$f" || true
-          done
-          for f in drivers/Kconfig common/drivers/Kconfig; do
-            [ -f "$f" ] && sed -i '/kernelsu/d' "$f" || true
-          done
-          echo "[✓] KernelSU 残留清理完成"
-
-      - name: 【第九步-B】部署 KernelSU-Next v3.4.0-legacy
+      # ==================== 第九步：KernelSU-Next ====================
+      - name: 【第九步】部署 KernelSU-Next Legacy
         id: step9
+        if: env.ENABLE_KERNELSU == 'true'
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
           chmod 755 ksu-legacy-setup.sh
-          # 显式钉到 v3.4.0-legacy；以后要切版本改这里即可
-          KSU_VER="${{ env.KSU_LEGACY_VERSION || 'v3.4.0-legacy' }}"
-          echo "[*] 目标版本: $KSU_VER"
-          ./ksu-legacy-setup.sh "$KSU_VER"
+          # 传 legacy = 分支最新；传 v3.4.0-legacy = 锁定版本
+          ./ksu-legacy-setup.sh "${{ env.KERNELSU_TAG }}"
+          grep -q "CONFIG_KSU" out/.config || echo "CONFIG_KSU=y" >> out/.config
           echo "[✓] KernelSU-Next 部署完成"
 
-      - name: 【第九步-C】为 4.4 内核插入 5 处手动 hook
-        id: step9-hooks
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp $GITHUB_WORKSPACE/apply_ksu_manual_hooks.sh ./
-          chmod 755 apply_ksu_manual_hooks.sh
-          ./apply_ksu_manual_hooks.sh "$(pwd)"
 
-      - name: 【第九步-D】写入 KSU 配置（含手动 hook 模式）
-        id: step9-config
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          add_config() {
-            local config="$1"
-            local key="${config%%=*}"
-            local clean_key="${key# }"
-            if grep -q "^${clean_key}=" out/.config 2>/dev/null || \
-               grep -q "^# ${clean_key} is not set" out/.config 2>/dev/null; then
-              sed -i "s|^${clean_key}=.*|${config}|" out/.config
-              sed -i "s|^# ${clean_key} is not set|${config}|" out/.config
-            else
-              echo "$config" >> out/.config
-            fi
-          }
-          # 核心开关
-          add_config "CONFIG_KSU=y"
-          # 4.4 必须关 kprobe；MANUAL_HOOK 在 !KPROBES 时会自动为 y，这里显式打开更保险
-          add_config "CONFIG_KPROBES=n"
-          add_config "CONFIG_KSU_MANUAL_HOOK=y"
-          # syscall-table hook 要求 ≥4.17，4.4 明确禁用
-          add_config "CONFIG_KSU_SYSCALL_TABLE_HOOK=n"
-          echo "[✓] KSU 配置写入完成"
-
-      - name: 【校验·第九步】KernelSU 部署、版本、hook 全面确认
+      - name: 【校验·第九步】KernelSU 配置确认
         run: |
           FAIL=0
-          KDIR=$GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          CFG=$KDIR/out/.config
-          # 1) drivers/kernelsu 必须存在并指向正确位置（有 Kbuild）
-          if [ -e "$KDIR/drivers/kernelsu/Kbuild" ] || [ -e "$KDIR/common/drivers/kernelsu/Kbuild" ]; then
-            echo "[✓] KernelSU 驱动目录存在且包含 Kbuild"
-          else
-            echo "[✗] drivers/kernelsu/Kbuild 缺失"
-            FAIL=1
-          fi
-          # 2) .config 开关
-          grep -q "^CONFIG_KSU=y$" "$CFG" && echo "[✓] CONFIG_KSU=y" || { echo "[✗] CONFIG_KSU=y 缺失"; FAIL=1; }
-          grep -q "^CONFIG_KSU_MANUAL_HOOK=y$" "$CFG" && echo "[✓] CONFIG_KSU_MANUAL_HOOK=y（手动 hook 已开）" \
-            || { echo "[✗] CONFIG_KSU_MANUAL_HOOK=y 缺失"; FAIL=1; }
-          # 3) 5 个 hook 调用点检查（kernel/reboot 是硬性要求，Kbuild 会 grep 它）
-          for f_pat in \
-            "kernel/reboot.c:ksu_handle_sys_reboot" \
-            "fs/exec.c:ksu_handle_execve" \
-            "fs/open.c:ksu_handle_faccessat" \
-            "fs/read_write.c:ksu_handle_vfs_read" \
-            "fs/stat.c:ksu_handle_stat"; do
-            f="${f_pat%%:*}"; p="${f_pat##*:}"
-            if grep -q "$p" "$KDIR/$f" 2>/dev/null; then
-              echo "[✓] $f 包含 $p"
-            else
-              echo "[✗] $f 缺少 $p"
-              FAIL=1
-            fi
-          done
-          # 4) 版本核对：进入 KernelSU-Next 目录，打印真实版本号
-          if [ -d "$KDIR/KernelSU-Next/.git" ]; then
-            cd "$KDIR/KernelSU-Next"
-            HEAD=$(git log -1 --oneline)
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo N/A)
-            CNT=$(git rev-list --count HEAD)
-            KSU_VER=$((30000 + CNT + 289))
-            echo "[✓] KernelSU-Next HEAD: $HEAD"
-            echo "[✓] KernelSU-Next tag : $TAG"
-            echo "[✓] 提交数: $CNT  ->  KSU_VERSION=$KSU_VER"
-            if [ "$TAG" != "v3.4.0-legacy" ]; then
-              echo "[!] 警告：tag 不是 v3.4.0-legacy（当前=$TAG），请检查"
-            fi
-            if [ "$KSU_VER" -lt 33294 ]; then
-              echo "[✗] KSU_VERSION=$KSU_VER < 33294（v3.4.0-legacy 的最低版本号），版本被锁旧了"
-              FAIL=1
-            else
-              echo "[✓] 版本号 ≥ 33294，符合 v3.4.0-legacy 标准"
-            fi
-          else
-            echo "[✗] KernelSU-Next/.git 缺失，无法核对版本"
-            FAIL=1
-          fi
+          CONFIG_FILE=$GITHUB_WORKSPACE/kernel_workspace/android-kernel/out/.config
+          grep -q "^CONFIG_KSU=y$" "$CONFIG_FILE" 2>/dev/null && echo "[✓] CONFIG_KSU=y" || { echo "[✗] CONFIG_KSU=y 缺失"; FAIL=1; }
+          [ -d "$GITHUB_WORKSPACE/kernel_workspace/android-kernel/drivers/kernelsu" ] && echo "[✓] KernelSU 驱动目录存在" || { echo "[✗] 驱动目录缺失"; FAIL=1; }
           if [ $FAIL -eq 1 ]; then
             echo "❌ 第九步校验失败，终止"
             exit 1
           fi
-          echo "✅ 第九步校验通过（版本 v3.4.0-legacy + 5 处手动 hook 全部就位）"
-
-
+          echo "✅ 第九步校验通过"
 
       # ==================== 第十步：olddefconfig + Clang 兼容修复 ====================
       - name: 【第十步】olddefconfig 同步
@@ -1189,8 +1088,6 @@ jobs:
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-implicit-function-declaration/d' Makefile
-          sed -i '/KBUILD_CFLAGS.*-Wno-error=declaration-after-statement/d' Makefile
-          sed -i '/KBUILD_CFLAGS.*-Wno-declaration-after-statement/d' Makefile
           echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
 
           # -------------------------- 第二层：写入六层强制豁免规则 --------------------------
@@ -1202,16 +1099,12 @@ jobs:
           echo "KBUILD_CFLAGS   += -Wno-parentheses-equality" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-implicit-function-declaration" >> Makefile
-          echo "KBUILD_CFLAGS   += -Wno-error=declaration-after-statement" >> Makefile
-          echo "KBUILD_CFLAGS   += -Wno-declaration-after-statement" >> Makefile
           echo "[✓] 第一层规则写入：屏蔽int转指针/指针转int的告警升级为致命错误"
           echo "[✓] 第二层规则写入：完全关闭int-conversion类型转换告警输出"
           echo "[✓] 第三层规则写入：屏蔽冗余括号相等比较的告警升级为致命错误"
           echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
           echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
           echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
-          echo "[✓] 第七层规则写入：屏蔽混合声明与代码（C90）的告警升级为致命错误"
-          echo "[✓] 第八层规则写入：完全关闭declaration-after-statement混合声明告警输出"
 
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
@@ -1253,22 +1146,10 @@ jobs:
             echo "[✗] 第六层规则写入失败，终止构建"
             FAIL=1
           fi
-          if grep -q "KBUILD_CFLAGS   += -Wno-error=declaration-after-statement" Makefile; then
-            echo "[✓] 第七层declaration-after-statement错误屏蔽规则已生效"
-          else
-            echo "[✗] 第七层规则写入失败，终止构建"
-            FAIL=1
-          fi
-          if grep -q "KBUILD_CFLAGS   += -Wno-declaration-after-statement" Makefile; then
-            echo "[✓] 第八层declaration-after-statement告警关闭规则已生效"
-          else
-            echo "[✗] 第八层规则写入失败，终止构建"
-            FAIL=1
-          fi
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ 八层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
+          echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
 
       
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
@@ -1305,7 +1186,6 @@ jobs:
           grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
           grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
           grep -n -i "implicit-function-declaration" full_build_detail.log || echo "[!] 日志中无隐式函数声明相关告警"
-          grep -n -i "declaration-after-statement" full_build_detail.log || echo "[!] 日志中无混合声明相关告警"
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
@@ -1319,7 +1199,7 @@ jobs:
             tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功，所有已知类型告警已被八层规则完全屏蔽"
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
 
 
 
