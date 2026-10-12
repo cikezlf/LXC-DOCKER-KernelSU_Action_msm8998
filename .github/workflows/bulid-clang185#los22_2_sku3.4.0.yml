@@ -467,20 +467,16 @@ jobs:
           ./ksu-legacy-setup.sh "$KSU_VER"
           echo "[✓] KernelSU-Next 部署完成"
 
-# ✅ 替换成这一段，用官方自带脚本，零自定义代码，100%正确
-      - name: 【第九步-C】官方脚本自动插入5处手动hook
+
+      - name: 【第九步-C】为 4.4 内核插入 5 处手动 hook
         id: step9-hooks
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 完全不用自定义hook脚本，直接调用KernelSU-Next官方自带的hook插入功能
-          chmod +x ./KernelSU-Next/kernel/setup.sh
-          ./KernelSU-Next/kernel/setup.sh --apply-manual-hooks
-          echo "[✓] 官方脚本已自动完成所有hook插入，位置100%正确"
-          # 打印hook位置验证
-          echo "=== 验证hook插入位置 ==="
-          grep -n "ksu_handle_" fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c
+          cp $GITHUB_WORKSPACE/apply_ksu_manual_hooks.sh ./
+          chmod 755 apply_ksu_manual_hooks.sh
+          ./apply_ksu_manual_hooks.sh "$(pwd)"
 
-
+          
       - name: 【第九步-D】写入 KSU 配置（含手动 hook 模式）
         id: step9-config
         run: |
