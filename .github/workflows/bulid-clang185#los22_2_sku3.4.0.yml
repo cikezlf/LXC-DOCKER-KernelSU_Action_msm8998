@@ -468,13 +468,59 @@ jobs:
           echo "[✓] KernelSU-Next 部署完成"
 
 
-      - name: 【第九步-C】为 4.4 内核插入 5 处手动 hook
+      - name: 【第九步-C】插入5处手动hook（纯shell，零格式错误）
         id: step9-hooks
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          cp $GITHUB_WORKSPACE/apply_ksu_manual_hooks.sh ./
-          chmod 755 apply_ksu_manual_hooks.sh
-          ./apply_ksu_manual_hooks.sh "$(pwd)"
+
+          # 通用hook插入函数：纯字符串匹配，跨行找{，无正则转义问题
+          insert_hook() {
+            local file="$1"
+            local func_kw="$2"
+            local hook_code="$3"
+
+            if [ ! -f "$file" ]; then
+              echo "[!] $file 不存在"
+              exit 1
+            fi
+
+            # 1. 先清理所有旧残留（固定字符串匹配，不解析正则）
+            grep -Fv -- "$hook_code" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+
+            # 2. awk逐行扫描：找到函数名→向下找第一个{→在{之后插入hook
+            awk -v hook="\t$hook_code" -v kw="$func_kw" '
+            BEGIN { found_func = 0; inserted = 0 }
+            {
+              if (!found_func && index($0, kw) > 0) { found_func = 1 }
+              print $0
+              if (found_func && !inserted && index($0, "{") > 0) {
+                print hook
+                inserted = 1
+              }
+            }
+            END { exit inserted ? 0 : 1 }
+            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+
+            echo "[+] $file: hook已插入到{之后"
+          }
+
+          echo "===== 开始插入5处KernelSU手动hook ====="
+          insert_hook "kernel/reboot.c" "reboot" "ksu_handle_sys_reboot(cmd, (void __user *)arg);"
+          insert_hook "fs/exec.c" "execve" "ksu_handle_execve(filename);"
+          insert_hook "fs/open.c" "faccessat" "ksu_handle_faccessat(filename, &ret);"
+          insert_hook "fs/read_write.c" "vfs_read" "ksu_handle_vfs_read(file, &buf, count, &pos);"
+          insert_hook "fs/stat.c" "newfstatat" "ksu_handle_stat(dfd, filename, &stat);"
+
+          echo ""
+          echo "=== 验证hook位置（必须在{之后） ==="
+          for f in fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c; do
+            echo "--- $f ---"
+            grep -n -A2 -B1 "ksu_handle_" "$f"
+          done
+
+          echo ""
+          echo "✅ 所有5处hook插入完成"
+
 
           
       - name: 【第九步-D】写入 KSU 配置（含手动 hook 模式）
