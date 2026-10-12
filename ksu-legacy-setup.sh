@@ -50,13 +50,23 @@ setup_kernelsu() {
         echo "[+] Repository cloned." 
     fi 
     
+    if [ ! -d "$GKI_ROOT/$REPO/.git" ]; then
+        git clone "https://github.com/$OWNER/$REPO" "$GKI_ROOT/$REPO"
+    fi
     cd "$GKI_ROOT/$REPO"
-    # 清理现场 
-    git stash && echo "[-] Stashed current changes."
-    git pull origin legacy && echo "[+] Repository updated." 
-    
-    # 强制切换到 legacy 分支 
-    git checkout legacy && echo "[-] Checked out legacy branch."
+    git fetch --tags --prune origin
+    case "${1:-}" in
+        ""|legacy)
+            git checkout --force "$BRANCH"
+            git reset --hard "origin/$BRANCH"     # 永远等于远端 legacy 最新
+            ;;
+        *)
+            git checkout --force "$1"
+            git reset --hard "$1"                 # 锁定到指定 tag/commit
+            ;;
+    esac
+    echo "[-] Current commit: $(git rev-parse --short HEAD)  ($(git log -1 --format=%cd --date=short))"
+
 
     # === 应用补丁逻辑 === 
     # # 补丁文件名叫 legacy4.4.patch
