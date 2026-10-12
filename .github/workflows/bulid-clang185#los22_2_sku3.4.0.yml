@@ -467,119 +467,17 @@ jobs:
           ./ksu-legacy-setup.sh "$KSU_VER"
           echo "[✓] KernelSU-Next 部署完成"
 
-      - name: 【第九步-C】精确插入5处手动hook（零未定义错误）
-        id: step9-hooks
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-
-          # 通用hook插入函数：精确匹配函数定义→跳过所有变量声明→在第一个可执行语句前插入
-          insert_hook() {
-            local file="$1"
-            local func_regex="$2"
-            local hook_code="$3"
-
-            if [ ! -f "$file" ]; then
-              echo "[!] $file 不存在"
-              exit 1
-            fi
-
-            # 1. 先清理所有旧hook残留（固定字符串匹配）
-            grep -Fv -- "$hook_code" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
-            # 2. awk精确插入：单引号包裹脚本，bash完全不转义，正则100%正确
-            awk -v hook="\t$hook_code" '
-            BEGIN { found_func = 0; found_brace = 0; inserted = 0 }
-            {
-              line = $0
-              # 阶段1：找精确的函数定义行（行首匹配，排除注释/其他函数）
-              if (!found_func) {
-                if (line ~ func_regex) {
-                  found_func = 1
-                }
-                print line
-                next
-              }
-              # 阶段2：找到函数体的左大括号{
-              if (!found_brace) {
-                print line
-                if (/\{/) {
-                  found_brace = 1
-                }
-                next
-              }
-              # 阶段3：跳过所有局部变量声明行，直到遇到第一个可执行语句
-              if (!inserted) {
-                stripped = line
-                gsub(/^[ \t]+/, "", stripped)
-                is_decl = 0
-                # 判断是否为变量声明行：类型关键字开头 + 分号结尾 + 无可执行特征
-                if (stripped ~ /^(const|static|unsigned|struct|enum|long|int|char|short|void|size_t|ssize_t|uid_t|gid_t|pid_t|bool)/) {
-                  if (stripped ~ /;$/ && stripped !~ /$|$|if|for|while|return|goto|=/) {
-                    is_decl = 1
-                  }
-                }
-                if (is_decl) {
-                  print line
-                  next
-                }
-                # 第一个可执行语句前插入hook
-                print hook
-                inserted = 1
-              }
-              print line
-            }
-            END { exit inserted ? 0 : 1 }
-            ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
-            echo "[+] $file: hook已插入到所有变量声明之后"
-          }
-
-          echo "===== 开始插入5处KernelSU手动hook ====="
-          # 精确匹配每个函数，完全避免匹配错误
-          insert_hook "kernel/reboot.c"    '^SYSCALL_DEFINE[0-9]+\s*\(\s*reboot'       "ksu_handle_sys_reboot(cmd, (void __user *)arg);"
-          insert_hook "fs/exec.c"          '^SYSCALL_DEFINE[0-9]+\s*\(\s*execve'       "ksu_handle_execve(filename);"
-          insert_hook "fs/open.c"          '^(static\s+)?long\s+do_faccessat\s*\('     "ksu_handle_faccessat(filename, &ret);"
-          insert_hook "fs/read_write.c"    '^ssize_t\s+vfs_read\s*\('                  "ksu_handle_vfs_read(file, &buf, count, &pos);"
-          insert_hook "fs/stat.c"          '^SYSCALL_DEFINE[0-9]+\s*\(\s*newfstatat'   "ksu_handle_stat(dfd, filename, &stat);"
-
-          echo ""
-          echo "=== 验证hook位置（必须在变量声明之后） ==="
-          for f in fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c; do
-            echo "--- $f ---"
-            grep -n -A3 -B3 "ksu_handle_" "$f"
-          done
-
-          echo ""
-          echo "✅ 所有5处hook插入完成，无未定义变量风险"
-
-
-
 
           
-      - name: 【第九步-D】写入 KSU 配置（含手动 hook 模式）
-        id: step9-config
+      - name: 【第九步-D】写入内核配置（kprobe模式，零手动hook）
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          add_config() {
-            local config="$1"
-            local key="${config%%=*}"
-            local clean_key="${key# }"
-            if grep -q "^${clean_key}=" out/.config 2>/dev/null || \
-               grep -q "^# ${clean_key} is not set" out/.config 2>/dev/null; then
-              sed -i "s|^${clean_key}=.*|${config}|" out/.config
-              sed -i "s|^# ${clean_key} is not set|${config}|" out/.config
-            else
-              echo "$config" >> out/.config
-            fi
-          }
-          # 核心开关
-          add_config "CONFIG_KSU=y"
-          # 4.4 必须关 kprobe；MANUAL_HOOK 在 !KPROBES 时会自动为 y，这里显式打开更保险
-          add_config "CONFIG_KPROBES=n"
-          add_config "CONFIG_KSU_MANUAL_HOOK=y"
-          # syscall-table hook 要求 ≥4.17，4.4 明确禁用
-          add_config "CONFIG_KSU_SYSCALL_TABLE_HOOK=n"
-          echo "[✓] KSU 配置写入完成"
+          ./scripts/config --file out/.config -e KSU
+          ./scripts/config --file out/.config -e KPROBES
+          ./scripts/config --file out/.config -d KSU_MANUAL_HOOK
+          make O=out ARCH=arm64 olddefconfig
+          echo "[✓] 配置完成：CONFIG_KSU=y, CONFIG_KPROBES=y, 手动hook已关闭"
+
 
       - name: 【校验·第九步】KernelSU 部署、版本、hook 全面确认
         run: |
