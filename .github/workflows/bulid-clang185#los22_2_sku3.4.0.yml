@@ -465,29 +465,13 @@ jobs:
           ./ksu-legacy-setup.sh v3.4.0-legacy
           echo "[✓] KernelSU-Next v3.4.0-legacy 驱动部署完成"
 
-      - name: 【第九步-C】官方脚本自动插入适配4.4内核的manual hook
+      - name: 【第九步-C】为 4.4 内核插入 5 处手动 hook
+        id: step9-hooks
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 确认当前KernelSU版本是v3.4.0-legacy
-          echo "=== 当前KernelSU-Next版本 ==="
-          cd KernelSU-Next
-          git describe --tags
-          git rev-list --count HEAD
-          cd ..
-          
-          # 运行官方setup.sh，打印全部输出
-          chmod +x ./KernelSU-Next/kernel/setup.sh
-          echo "=== 运行官方hook插入脚本 ==="
-          ./KernelSU-Next/kernel/setup.sh
-          
-          # 验证hook
-          echo ""
-          echo "=== 验证hook插入结果 ==="
-          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[✓] reboot.c hook正常" || echo "[✗] reboot.c hook缺失"
-          grep -q "ksu_handle_execve" fs/exec.c && echo "[✓] exec.c hook正常" || echo "[✗] exec.c hook缺失"
-          grep -q "ksu_handle_faccessat" fs/open.c && echo "[✓] open.c hook正常" || echo "[✗] open.c hook缺失"
-          grep -q "ksu_handle_vfs_read" fs/read_write.c && echo "[✓] read_write.c hook正常" || echo "[✗] read_write.c hook缺失"
-          grep -q "ksu_handle_stat" fs/stat.c && echo "[✓] stat.c hook正常" || echo "[✗] stat.c hook缺失"
+          cp $GITHUB_WORKSPACE/apply_ksu_manual_hooks.sh ./
+          chmod 755 apply_ksu_manual_hooks.sh
+          ./apply_ksu_manual_hooks.sh "$(pwd)"
 
 
       - name: 【第九步-D】写入内核配置
