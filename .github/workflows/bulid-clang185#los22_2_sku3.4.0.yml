@@ -468,17 +468,27 @@ jobs:
       - name: 【第九步-C】官方脚本自动插入适配4.4内核的manual hook
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          # 直接运行官方setup.sh，不加任何参数，自动检测4.4内核、自动插正确位置的hook
+          # 确认当前KernelSU版本是v3.4.0-legacy
+          echo "=== 当前KernelSU-Next版本 ==="
+          cd KernelSU-Next
+          git describe --tags
+          git rev-list --count HEAD
+          cd ..
+          
+          # 运行官方setup.sh，打印全部输出
           chmod +x ./KernelSU-Next/kernel/setup.sh
+          echo "=== 运行官方hook插入脚本 ==="
           ./KernelSU-Next/kernel/setup.sh
-          echo "[✓] 官方脚本自动完成所有hook插入、补丁适配"
-          # 简单验证hook存在
-          echo "=== 验证hook已插入 ==="
-          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[✓] reboot.c hook正常"
-          grep -q "ksu_handle_execve" fs/exec.c && echo "[✓] exec.c hook正常"
-          grep -q "ksu_handle_faccessat" fs/open.c && echo "[✓] open.c hook正常"
-          grep -q "ksu_handle_vfs_read" fs/read_write.c && echo "[✓] read_write.c hook正常"
-          grep -q "ksu_handle_stat" fs/stat.c && echo "[✓] stat.c hook正常"
+          
+          # 验证hook
+          echo ""
+          echo "=== 验证hook插入结果 ==="
+          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[✓] reboot.c hook正常" || echo "[✗] reboot.c hook缺失"
+          grep -q "ksu_handle_execve" fs/exec.c && echo "[✓] exec.c hook正常" || echo "[✗] exec.c hook缺失"
+          grep -q "ksu_handle_faccessat" fs/open.c && echo "[✓] open.c hook正常" || echo "[✗] open.c hook缺失"
+          grep -q "ksu_handle_vfs_read" fs/read_write.c && echo "[✓] read_write.c hook正常" || echo "[✗] read_write.c hook缺失"
+          grep -q "ksu_handle_stat" fs/stat.c && echo "[✓] stat.c hook正常" || echo "[✗] stat.c hook缺失"
+
 
       - name: 【第九步-D】写入内核配置
         run: |
