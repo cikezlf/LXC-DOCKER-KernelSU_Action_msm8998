@@ -1189,6 +1189,8 @@ jobs:
           sed -i '/KBUILD_CFLAGS.*-Wno-int-conversion/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-parentheses-equality/d' Makefile
           sed -i '/KBUILD_CFLAGS.*-Wno-implicit-function-declaration/d' Makefile
+          sed -i '/KBUILD_CFLAGS.*-Wno-error=declaration-after-statement/d' Makefile
+          sed -i '/KBUILD_CFLAGS.*-Wno-declaration-after-statement/d' Makefile
           echo "[✓] 已清空所有旧的告警豁免规则，避免重复写入冲突"
 
           # -------------------------- 第二层：写入六层强制豁免规则 --------------------------
@@ -1200,12 +1202,16 @@ jobs:
           echo "KBUILD_CFLAGS   += -Wno-parentheses-equality" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-error=implicit-function-declaration" >> Makefile
           echo "KBUILD_CFLAGS   += -Wno-implicit-function-declaration" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-error=declaration-after-statement" >> Makefile
+          echo "KBUILD_CFLAGS   += -Wno-declaration-after-statement" >> Makefile
           echo "[✓] 第一层规则写入：屏蔽int转指针/指针转int的告警升级为致命错误"
           echo "[✓] 第二层规则写入：完全关闭int-conversion类型转换告警输出"
           echo "[✓] 第三层规则写入：屏蔽冗余括号相等比较的告警升级为致命错误"
           echo "[✓] 第四层规则写入：完全关闭parentheses-equality冗余括号告警输出"
           echo "[✓] 第五层规则写入：屏蔽隐式函数声明的告警升级为致命错误"
           echo "[✓] 第六层规则写入：完全关闭implicit-function-declaration隐式函数告警输出"
+          echo "[✓] 第七层规则写入：屏蔽混合声明与代码（C90）的告警升级为致命错误"
+          echo "[✓] 第八层规则写入：完全关闭declaration-after-statement混合声明告警输出"
 
           # -------------------------- 第三层：校验所有豁免规则写入有效性 --------------------------
           echo ""
@@ -1247,10 +1253,22 @@ jobs:
             echo "[✗] 第六层规则写入失败，终止构建"
             FAIL=1
           fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-error=declaration-after-statement" Makefile; then
+            echo "[✓] 第七层declaration-after-statement错误屏蔽规则已生效"
+          else
+            echo "[✗] 第七层规则写入失败，终止构建"
+            FAIL=1
+          fi
+          if grep -q "KBUILD_CFLAGS   += -Wno-declaration-after-statement" Makefile; then
+            echo "[✓] 第八层declaration-after-statement告警关闭规则已生效"
+          else
+            echo "[✗] 第八层规则写入失败，终止构建"
+            FAIL=1
+          fi
           if [ $FAIL -eq 1 ]; then
             exit 1
           fi
-          echo "✅ 六层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
+          echo "✅ 八层Werror豁免配置全部校验通过，从根源规避所有已知Clang告警升级为致命错误"
 
       
           # -------------------------- 第四层：定义编译全局环境变量 --------------------------
@@ -1287,6 +1305,7 @@ jobs:
           grep -n -i "fatal error" full_build_detail.log || echo "[!] 日志中无致命编译错误"
           grep -n -i "parentheses-equality" full_build_detail.log || echo "[!] 日志中无冗余括号相关告警"
           grep -n -i "implicit-function-declaration" full_build_detail.log || echo "[!] 日志中无隐式函数声明相关告警"
+          grep -n -i "declaration-after-statement" full_build_detail.log || echo "[!] 日志中无混合声明相关告警"
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "incomplete definition of type" full_build_detail.log || echo "[!] 日志中无不完整类型定义错误"
           grep -n -i "sensorb_cfg_data32" full_build_detail.log || echo "[!] 日志中无32位结构体类型相关错误"
@@ -1300,7 +1319,7 @@ jobs:
             tail -100 full_build_detail.log
             exit 1
           fi
-          echo "[✓] 内核编译完全成功，所有已知类型告警已被四层规则完全屏蔽"
+          echo "[✓] 内核编译完全成功，所有已知类型告警已被八层规则完全屏蔽"
 
 
 
