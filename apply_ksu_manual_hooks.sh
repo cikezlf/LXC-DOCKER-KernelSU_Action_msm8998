@@ -31,7 +31,7 @@ if [ ! -f "$KROOT/Makefile" ]; then
     exit 1
 fi
 
-# --------- 1 个原子插入工具：在“某函数某行附近（或首个 { 后）”插入代码 ---------
+# --------- 1 个原子插入工具：在“某函数定义附近，找到首个 '{' 之后”插入代码 ---------
 # 用法：insert_after_func_open <file> <func_pattern> <code_line> [unique_marker]
 insert_after_func_open() {
     local file="$1" func_pat="$2" code="$3" marker="${4:-$code}"
@@ -39,15 +39,22 @@ insert_after_func_open() {
         echo "[=] $(basename "$file"): 已包含 hook 标记，跳过"
         return 0
     fi
-    # 用 awk 定位：找到 func 所在行 -> 向后找它的 '{' -> 在下一行插入
-    awk -v func="$func_pat" -v code="$code" '
+    # 注意：变量名不能叫 'func' —— gawk 中 'func' 是内置关键字
+    awk -v funcpat="$func_pat" -v code="$code" '
         BEGIN { in_func=0; inserted=0; brace_found=0 }
         {
+            if (!inserted) {
+                if (!in_func && $0 ~ funcpat) { in_func=1 }
+                if (in_func) {
+                    # 跳过参数跨行的行，直到找到真正的 { 开括号
+                    if ($0 ~ /\{/) {
+                        brace_found=1
+                    }
+                }
+            }
             print
             if (inserted) next
-            if (!in_func && $0 ~ func) { in_func=1 }
-            if (in_func && !brace_found && $0 ~ /\{/) {
-                brace_found=1
+            if (brace_found) {
                 print code
                 inserted=1
                 in_func=0; brace_found=0
@@ -66,16 +73,20 @@ insert_after_func_open() {
 F1="$KROOT/kernel/reboot.c"
 if [ -f "$F1" ]; then
     # 不同 4.4 版本的 reboot syscall 函数名不完全一致，尝试最常见的几种
+    hook_inserted=0
     if grep -q "SYSCALL_DEFINE4(reboot" "$F1"; then
-        insert_after_func_open "$F1" "SYSCALL_DEFINE4\\(reboot" \
+        insert_after_func_open "$F1" "SYSCALL_DEFINE4[[:space:]]*\\(reboot" \
             "\tksu_handle_sys_reboot(cmd, __user arg);" \
-            "ksu_handle_sys_reboot(cmd"
-    elif grep -q "SYSCALL_DEFINE4\\(reboot" "$F1"; then
+            "ksu_handle_sys_reboot(cmd" && hook_inserted=1
+    fi
+    if [ "$hook_inserted" = "0" ] && grep -qE '^[[:space:]]*(asmlinkage[[:space:]]+)?(long|SYSCALL_DEFINE[^)]*)[[:space:]]*sys_reboot' "$F1"; then
         insert_after_func_open "$F1" "sys_reboot" \
             "\tksu_handle_sys_reboot(cmd, __user arg);" \
-            "ksu_handle_sys_reboot(cmd"
-    else
+            "ksu_handle_sys_reboot(cmd" && hook_inserted=1
+    fi
+    if [ "$hook_inserted" = "0" ]; then
         echo "[!] $F1 中未找到 reboot syscall，请手动插入 ksu_handle_sys_reboot"
+        return 1
     fi
 else
     echo "[!] 缺失 $F1"
