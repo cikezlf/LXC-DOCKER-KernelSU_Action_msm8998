@@ -114,3 +114,4 @@ else
     initialize_variables
     setup_kernelsu "$@"
 fi
+
