@@ -111,3 +111,4 @@ echo "✅ 全部hook插入完成"
 echo "=== 验证fs/open.c插入位置（第340-360行） ==="
 sed -n '340,360p' fs/open.c
 exit 0
+
