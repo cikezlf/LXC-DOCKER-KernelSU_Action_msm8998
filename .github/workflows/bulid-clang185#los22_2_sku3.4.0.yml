@@ -462,7 +462,7 @@ jobs:
           cp $GITHUB_WORKSPACE/ksu-legacy-setup.sh ./
           chmod 755 ksu-legacy-setup.sh
           # 显式钉到 v3.4.0-legacy；以后要切版本改这里即可
-          KSU_VER="${{ env.KSU_LEGACY_VERSION || v3.4.0-legacy }}"
+          KSU_VER="${{ env.KSU_LEGACY_VERSION || 'v3.4.0-legacy' }}"
           echo "[*] 目标版本: $KSU_VER"
           ./ksu-legacy-setup.sh "$KSU_VER"
           echo "[✓] KernelSU-Next 部署完成"
