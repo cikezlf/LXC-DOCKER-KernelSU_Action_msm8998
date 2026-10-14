@@ -322,17 +322,6 @@ jobs:
           # Fix for docker unsafe procfs error
           add_config "CONFIG_USER_NS=y"
           
-          # ==============================================
-          # 🔧 NAT长时间运行卡顿优化项 (4.14内核全兼容，无无效符号)
-          # ==============================================
-          
-          # ---------- 1. conntrack连接跟踪优化 ----------
-          add_config "CONFIG_CMDLINE_EXTEND=y"
-
-          
-          # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
-          add_config "CONFIG_TCP_CONG_BBR=y"
-
           
           echo "[✓] Docker/LXC 全量配置已写入"
 
@@ -433,18 +422,6 @@ jobs:
             # Fix for docker unsafe procfs error
             "CONFIG_USER_NS=y"
             
-            # ==============================================
-            # 🔧 NAT长时间运行卡顿优化项 (4.14内核全兼容，无无效符号)
-            # ==============================================
-            
-            # ---------- 1. conntrack连接跟踪优化 ----------
-            "CONFIG_CMDLINE_EXTEND=y"
-
-            
-            # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
-            "CONFIG_TCP_CONG_BBR=y"
-
-
             
           )
           for cfg in "${CORE[@]}"; do
