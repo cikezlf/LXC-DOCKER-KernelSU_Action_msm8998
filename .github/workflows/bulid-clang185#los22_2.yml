@@ -321,55 +321,43 @@ jobs:
           
           # Fix for docker unsafe procfs error
           add_config "CONFIG_USER_NS=y"
-
+          
           # ==============================================
-          # 🔧 NAT长时间运行卡顿优化项 (新增)
+          # 🔧 NAT长时间运行卡顿优化项 (适配老内核版本)
           # ==============================================
           
           # ---------- 1. conntrack连接跟踪优化 ----------
-          # 保留procfs用于诊断
           add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
-          # 启用期望连接优化，加速关联连接处理
           add_config "CONFIG_NF_CONNTRACK_EXPECT=y"
-          # 关闭无用的跟踪协议，减少每包开销
+          # 关闭无用跟踪协议
           # CONFIG_NF_CT_PROTO_SCTP is not set
           # CONFIG_NF_CT_PROTO_DCCP is not set
-          # 关闭conntrack调试，减少性能损耗
           add_config "CONFIG_NF_CONNTRACK_DEBUG=n"
-          # 【编译期固化哈希桶大小】替代无效的CONFIG_NF_CONNTRACK_HSIZE
-          # 8GB内存设131072，12GB+可设262142，5.10及更早GKI内核上限65536
+          # 哈希桶大小用cmdline固化，老内核支持
           add_config "CONFIG_CMDLINE_EXTEND=y"
-          add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=131072""
+          # 4.14老内核建议65536，对应max 262144足够骁龙835使用
+          add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""  
           
           # ---------- 2. 桥接转发性能优化 ----------
-          # 默认关闭bridge-nf-call-iptables，避免桥接帧额外走iptables消耗CPU
-          add_config "CONFIG_BRIDGE_NF_CALL_IPTABLES_DEFAULT=0"
-          add_config "CONFIG_BRIDGE_NF_CALL_IP6TABLES_DEFAULT=0"
-          add_config "CONFIG_BRIDGE_NF_CALL_ARPTABLES_DEFAULT=0"
+          # 4.19之前内核没有BRIDGE_NF_CALL_DEFAULT选项，删除该项，通过运行时sysctl设置即可
           
           # ---------- 3. TCP/NAT传输性能优化 ----------
-          # 默认启用BBR拥塞控制，大幅降低无线/NAT场景下的丢包和延迟
           add_config "CONFIG_TCP_CONG_BBR=y"
           add_config "CONFIG_DEFAULT_TCP_CONG="bbr""
-          # FQ队列调度，配合BBR实现最佳吞吐
           add_config "CONFIG_NET_SCH_FQ=y"
           add_config "CONFIG_NET_SCH_FQ_CODEL=y"
-          add_config "CONFIG_DEFAULT_FQ_CODEL=y"
-          # TCP基础性能特性
+          # 老内核通过NET_SCH_DEFAULT设置默认队列，替换不存在的CONFIG_DEFAULT_FQ_CODEL
+          add_config "CONFIG_NET_SCH_DEFAULT=y"
+          add_config "CONFIG_DEFAULT_NET_SCH="fq""
           add_config "CONFIG_TCP_WINDOW_SCALING=y"
           add_config "CONFIG_TCP_FASTOPEN=y"
-          add_config "CONFIG_TCP_MTU_PROBING=y"
-          add_config "CONFIG_TCP_EARLY_RETRANS=y"
-          # 增大Socket缓冲区上限，避免高负载丢包
-          add_config "CONFIG_NET_CORE=y"
+          # 删除老内核不存在的TCP_MTU_PROBING、TCP_EARLY_RETRANS
           add_config "CONFIG_NET_RX_BUSY_POLL=y"
           
           # ---------- 4. 内存/IO优化 ----------
-          # SLUB内存分配器优化，减少conntrack内存碎片
           add_config "CONFIG_SLUB=y"
           add_config "CONFIG_SLUB_DEBUG=n"
           add_config "CONFIG_SLABINFO=y"
-          # 内存压缩，缓解高负载下内存压力
           add_config "CONFIG_COMPACTION=y"
           add_config "CONFIG_ZRAM=y"
           
@@ -377,10 +365,10 @@ jobs:
           add_config "CONFIG_DEBUG_KERNEL=n"
           add_config "CONFIG_DEBUG_FS=n"
           add_config "CONFIG_KASAN=n"
-          add_config "CONFIG_KMSAN=n"
+          # 老内核没有KMSAN，直接删除
           add_config "CONFIG_LOCKDEP=n"
           add_config "CONFIG_DEBUG_NET=n"
-          add_config "CONFIG_DEBUG_PREEMPT=n"
+          # DEBUG_PREEMPT在安卓内核中默认已开启，不需要强行关闭
           
           echo "[✓] Docker/LXC 全量配置已写入"
 
@@ -482,53 +470,41 @@ jobs:
             "CONFIG_USER_NS=y"
             
             # ==============================================
-            # 🔧 NAT长时间运行卡顿优化项 (新增)
+            # 🔧 NAT长时间运行卡顿优化项 (适配老内核版本)
             # ==============================================
             
             # ---------- 1. conntrack连接跟踪优化 ----------
-            # 保留procfs用于诊断
             "CONFIG_NF_CONNTRACK_PROCFS=y"
-            # 启用期望连接优化，加速关联连接处理
             "CONFIG_NF_CONNTRACK_EXPECT=y"
-            # 关闭无用的跟踪协议，减少每包开销
+            # 关闭无用跟踪协议
             # CONFIG_NF_CT_PROTO_SCTP is not set
             # CONFIG_NF_CT_PROTO_DCCP is not set
-            # 关闭conntrack调试，减少性能损耗
             "CONFIG_NF_CONNTRACK_DEBUG=n"
-            # 【编译期固化哈希桶大小】替代无效的CONFIG_NF_CONNTRACK_HSIZE
-            # 8GB内存设131072，12GB+可设262142，5.10及更早GKI内核上限65536
+            # 哈希桶大小用cmdline固化，老内核支持
             "CONFIG_CMDLINE_EXTEND=y"
-            "CONFIG_CMDLINE="nf_conntrack.hashsize=131072""
+            # 4.14老内核建议65536，对应max 262144足够骁龙835使用
+            "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""  
             
             # ---------- 2. 桥接转发性能优化 ----------
-            # 默认关闭bridge-nf-call-iptables，避免桥接帧额外走iptables消耗CPU
-            "CONFIG_BRIDGE_NF_CALL_IPTABLES_DEFAULT=0"
-            "CONFIG_BRIDGE_NF_CALL_IP6TABLES_DEFAULT=0"
-            "CONFIG_BRIDGE_NF_CALL_ARPTABLES_DEFAULT=0"
+            # 4.19之前内核没有BRIDGE_NF_CALL_DEFAULT选项，删除该项，通过运行时sysctl设置即可
             
             # ---------- 3. TCP/NAT传输性能优化 ----------
-            # 默认启用BBR拥塞控制，大幅降低无线/NAT场景下的丢包和延迟
             "CONFIG_TCP_CONG_BBR=y"
             "CONFIG_DEFAULT_TCP_CONG="bbr""
-            # FQ队列调度，配合BBR实现最佳吞吐
             "CONFIG_NET_SCH_FQ=y"
             "CONFIG_NET_SCH_FQ_CODEL=y"
-            "CONFIG_DEFAULT_FQ_CODEL=y"
-            # TCP基础性能特性
+            # 老内核通过NET_SCH_DEFAULT设置默认队列，替换不存在的CONFIG_DEFAULT_FQ_CODEL
+            "CONFIG_NET_SCH_DEFAULT=y"
+            "CONFIG_DEFAULT_NET_SCH="fq""
             "CONFIG_TCP_WINDOW_SCALING=y"
             "CONFIG_TCP_FASTOPEN=y"
-            "CONFIG_TCP_MTU_PROBING=y"
-            "CONFIG_TCP_EARLY_RETRANS=y"
-            # 增大Socket缓冲区上限，避免高负载丢包
-            "CONFIG_NET_CORE=y"
+            # 删除老内核不存在的TCP_MTU_PROBING、TCP_EARLY_RETRANS
             "CONFIG_NET_RX_BUSY_POLL=y"
             
             # ---------- 4. 内存/IO优化 ----------
-            # SLUB内存分配器优化，减少conntrack内存碎片
             "CONFIG_SLUB=y"
             "CONFIG_SLUB_DEBUG=n"
             "CONFIG_SLABINFO=y"
-            # 内存压缩，缓解高负载下内存压力
             "CONFIG_COMPACTION=y"
             "CONFIG_ZRAM=y"
             
@@ -536,10 +512,10 @@ jobs:
             "CONFIG_DEBUG_KERNEL=n"
             "CONFIG_DEBUG_FS=n"
             "CONFIG_KASAN=n"
-            "CONFIG_KMSAN=n"
+            # 老内核没有KMSAN，直接删除
             "CONFIG_LOCKDEP=n"
             "CONFIG_DEBUG_NET=n"
-            "CONFIG_DEBUG_PREEMPT=n"
+            # DEBUG_PREEMPT在安卓内核中默认已开启，不需要强行关闭
 
             
           )
