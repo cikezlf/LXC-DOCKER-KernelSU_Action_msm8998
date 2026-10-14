@@ -328,7 +328,7 @@ jobs:
           
           # ---------- 1. conntrack连接跟踪优化 ----------
           add_config "CONFIG_CMDLINE_EXTEND=y"
-          add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
+          add_config "CONFIG_CMDLINE=nf_conntrack.hashsize=65536"
           
           # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
           add_config "CONFIG_TCP_CONG_BBR=y"
@@ -454,7 +454,7 @@ jobs:
             
             # ---------- 1. conntrack连接跟踪优化 ----------
             "CONFIG_CMDLINE_EXTEND=y"
-            "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
+            "CONFIG_CMDLINE=nf_conntrack.hashsize=65536"
             
             # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
             "CONFIG_TCP_CONG_BBR=y"
