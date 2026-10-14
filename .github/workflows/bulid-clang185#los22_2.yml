@@ -321,6 +321,22 @@ jobs:
           
           # Fix for docker unsafe procfs error
           add_config "CONFIG_USER_NS=y"
+
+          #扩大连接跟踪表上限与内存优化
+          # 在 defconfig 中添加或修改
+          add_config "CONFIG_NETFILTER=y"
+          add_config "CONFIG_NF_CONNTRACK=y"
+          # 强制设置更大的 conntrack 哈希表大小（根据手机内存调整，8GB内存建议设为 65536 或更高）
+          add_config "CONFIG_NF_CONNTRACK_HSIZE=65536"
+          # 启用 conntrack 事件缓存，减少锁竞争
+          add_config "CONFIG_NF_CONNTRACK_EVENTS=y"
+
+          #启用 TCP 时间戳与 TW 复用（解决 NAT 端口耗尽）
+          add_config "CONFIG_TCP_TIMESTAMP=y"
+          add_config "CONFIG_TCP_TW_REUSE=y"
+          # 注意：不要开启 tcp_tw_recycle，这在 NAT 环境下会导致连接失败
+          add_config "CONFIG_TCP_TW_RECYCLE=n"
+          
           echo "[✓] Docker/LXC 全量配置已写入"
 
       - name: 【校验·第七步】核心配置验证
@@ -419,6 +435,23 @@ jobs:
             
             # Fix for docker unsafe procfs error
             "CONFIG_USER_NS=y"
+
+            #扩大连接跟踪表上限与内存优化
+            # 在 defconfig 中添加或修改
+            "CONFIG_NETFILTER=y"
+            "CONFIG_NF_CONNTRACK=y"
+            # 强制设置更大的 conntrack 哈希表大小（根据手机内存调整，8GB内存建议设为 65536 或更高）
+            "CONFIG_NF_CONNTRACK_HSIZE=65536"
+            # 启用 conntrack 事件缓存，减少锁竞争
+            "CONFIG_NF_CONNTRACK_EVENTS=y"
+  
+            #启用 TCP 时间戳与 TW 复用（解决 NAT 端口耗尽）
+            "CONFIG_TCP_TIMESTAMP=y"
+            "CONFIG_TCP_TW_REUSE=y"
+            # 注意：不要开启 tcp_tw_recycle，这在 NAT 环境下会导致连接失败
+            "CONFIG_TCP_TW_RECYCLE=n"
+
+            
           )
           for cfg in "${CORE[@]}"; do
             if grep -q "^${cfg}$" "$CONFIG_FILE" 2>/dev/null; then
