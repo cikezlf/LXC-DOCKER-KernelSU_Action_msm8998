@@ -323,7 +323,7 @@ jobs:
           add_config "CONFIG_USER_NS=y"
           
           # ==============================================
-          # 🔧 NAT长时间运行卡顿优化项 (适配老内核版本)
+          # 🔧 NAT长时间运行卡顿优化项 (语法修正版)
           # ==============================================
           
           # ---------- 1. conntrack连接跟踪优化 ----------
@@ -332,43 +332,29 @@ jobs:
           # 关闭无用跟踪协议
           # CONFIG_NF_CT_PROTO_SCTP is not set
           # CONFIG_NF_CT_PROTO_DCCP is not set
-          add_config "CONFIG_NF_CONNTRACK_DEBUG=n"
-          # 哈希桶大小用cmdline固化，老内核支持
+          # 关闭conntrack调试
+          # CONFIG_NF_CONNTRACK_DEBUG is not set
+          # 哈希桶大小固化，cmdline参数正确写法
           add_config "CONFIG_CMDLINE_EXTEND=y"
-          # 4.14老内核建议65536，对应max 262144足够骁龙835使用
-          add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""  
+          add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
           
-          # ---------- 2. 桥接转发性能优化 ----------
-          # 4.19之前内核没有BRIDGE_NF_CALL_DEFAULT选项，删除该项，通过运行时sysctl设置即可
-          
-          # ---------- 3. TCP/NAT传输性能优化 ----------
+          # ---------- 2. TCP/NAT传输性能优化 (4.14内核兼容) ----------
           add_config "CONFIG_TCP_CONG_BBR=y"
-          add_config "CONFIG_DEFAULT_TCP_CONG="bbr""
+          add_config "CONFIG_DEFAULT_TCP_CONG=bbr"
           add_config "CONFIG_NET_SCH_FQ=y"
           add_config "CONFIG_NET_SCH_FQ_CODEL=y"
-          # 老内核通过NET_SCH_DEFAULT设置默认队列，替换不存在的CONFIG_DEFAULT_FQ_CODEL
           add_config "CONFIG_NET_SCH_DEFAULT=y"
-          add_config "CONFIG_DEFAULT_NET_SCH="fq""
+          add_config "CONFIG_DEFAULT_NET_SCH=fq"
           add_config "CONFIG_TCP_WINDOW_SCALING=y"
           add_config "CONFIG_TCP_FASTOPEN=y"
-          # 删除老内核不存在的TCP_MTU_PROBING、TCP_EARLY_RETRANS
           add_config "CONFIG_NET_RX_BUSY_POLL=y"
           
-          # ---------- 4. 内存/IO优化 ----------
+          # ---------- 3. 内存/IO优化 ----------
           add_config "CONFIG_SLUB=y"
-          add_config "CONFIG_SLUB_DEBUG=n"
+          # CONFIG_SLUB_DEBUG is not set
           add_config "CONFIG_SLABINFO=y"
           add_config "CONFIG_COMPACTION=y"
           add_config "CONFIG_ZRAM=y"
-          
-          # ---------- 5. 关闭拖慢转发的调试选项 ----------
-          add_config "CONFIG_DEBUG_KERNEL=n"
-          add_config "CONFIG_DEBUG_FS=n"
-          add_config "CONFIG_KASAN=n"
-          # 老内核没有KMSAN，直接删除
-          add_config "CONFIG_LOCKDEP=n"
-          add_config "CONFIG_DEBUG_NET=n"
-          # DEBUG_PREEMPT在安卓内核中默认已开启，不需要强行关闭
           
           echo "[✓] Docker/LXC 全量配置已写入"
 
@@ -470,7 +456,7 @@ jobs:
             "CONFIG_USER_NS=y"
             
             # ==============================================
-            # 🔧 NAT长时间运行卡顿优化项 (适配老内核版本)
+            # 🔧 NAT长时间运行卡顿优化项 (语法修正版)
             # ==============================================
             
             # ---------- 1. conntrack连接跟踪优化 ----------
@@ -479,43 +465,29 @@ jobs:
             # 关闭无用跟踪协议
             # CONFIG_NF_CT_PROTO_SCTP is not set
             # CONFIG_NF_CT_PROTO_DCCP is not set
-            "CONFIG_NF_CONNTRACK_DEBUG=n"
-            # 哈希桶大小用cmdline固化，老内核支持
+            # 关闭conntrack调试
+            # CONFIG_NF_CONNTRACK_DEBUG is not set
+            # 哈希桶大小固化，cmdline参数正确写法
             "CONFIG_CMDLINE_EXTEND=y"
-            # 4.14老内核建议65536，对应max 262144足够骁龙835使用
-            "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""  
+            "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
             
-            # ---------- 2. 桥接转发性能优化 ----------
-            # 4.19之前内核没有BRIDGE_NF_CALL_DEFAULT选项，删除该项，通过运行时sysctl设置即可
-            
-            # ---------- 3. TCP/NAT传输性能优化 ----------
+            # ---------- 2. TCP/NAT传输性能优化 (4.14内核兼容) ----------
             "CONFIG_TCP_CONG_BBR=y"
-            "CONFIG_DEFAULT_TCP_CONG="bbr""
+            "CONFIG_DEFAULT_TCP_CONG=bbr"
             "CONFIG_NET_SCH_FQ=y"
             "CONFIG_NET_SCH_FQ_CODEL=y"
-            # 老内核通过NET_SCH_DEFAULT设置默认队列，替换不存在的CONFIG_DEFAULT_FQ_CODEL
             "CONFIG_NET_SCH_DEFAULT=y"
-            "CONFIG_DEFAULT_NET_SCH="fq""
+            "CONFIG_DEFAULT_NET_SCH=fq"
             "CONFIG_TCP_WINDOW_SCALING=y"
             "CONFIG_TCP_FASTOPEN=y"
-            # 删除老内核不存在的TCP_MTU_PROBING、TCP_EARLY_RETRANS
             "CONFIG_NET_RX_BUSY_POLL=y"
             
-            # ---------- 4. 内存/IO优化 ----------
+            # ---------- 3. 内存/IO优化 ----------
             "CONFIG_SLUB=y"
-            "CONFIG_SLUB_DEBUG=n"
+            # CONFIG_SLUB_DEBUG is not set
             "CONFIG_SLABINFO=y"
             "CONFIG_COMPACTION=y"
             "CONFIG_ZRAM=y"
-            
-            # ---------- 5. 关闭拖慢转发的调试选项 ----------
-            "CONFIG_DEBUG_KERNEL=n"
-            "CONFIG_DEBUG_FS=n"
-            "CONFIG_KASAN=n"
-            # 老内核没有KMSAN，直接删除
-            "CONFIG_LOCKDEP=n"
-            "CONFIG_DEBUG_NET=n"
-            # DEBUG_PREEMPT在安卓内核中默认已开启，不需要强行关闭
 
             
           )
