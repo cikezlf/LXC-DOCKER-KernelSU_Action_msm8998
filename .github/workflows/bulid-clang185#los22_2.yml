@@ -323,22 +323,14 @@ jobs:
           add_config "CONFIG_USER_NS=y"
           
           # ==============================================
-          # 🔧 NAT长时间运行卡顿优化项 (语法修正版)
+          # 🔧 NAT长时间运行卡顿优化项 (4.14内核全兼容，无无效符号)
           # ==============================================
           
           # ---------- 1. conntrack连接跟踪优化 ----------
-          add_config "CONFIG_NF_CONNTRACK_PROCFS=y"
-          add_config "CONFIG_NF_CONNTRACK_EXPECT=y"
-          # 关闭无用跟踪协议
-          # CONFIG_NF_CT_PROTO_SCTP is not set
-          # CONFIG_NF_CT_PROTO_DCCP is not set
-          # 关闭conntrack调试
-          # CONFIG_NF_CONNTRACK_DEBUG is not set
-          # 哈希桶大小固化，cmdline参数正确写法
           add_config "CONFIG_CMDLINE_EXTEND=y"
           add_config "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
           
-          # ---------- 2. TCP/NAT传输性能优化 (4.14内核兼容) ----------
+          # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
           add_config "CONFIG_TCP_CONG_BBR=y"
           add_config "CONFIG_DEFAULT_TCP_CONG=bbr"
           add_config "CONFIG_NET_SCH_FQ=y"
@@ -347,7 +339,8 @@ jobs:
           add_config "CONFIG_DEFAULT_NET_SCH=fq"
           add_config "CONFIG_TCP_WINDOW_SCALING=y"
           add_config "CONFIG_TCP_FASTOPEN=y"
-          add_config "CONFIG_NET_RX_BUSY_POLL=y"
+          add_config "CONFIG_TCP_FASTOPEN_DEFAULT=1"
+          # 4.14不支持NET_RX_BUSY_POLL，直接删除避免报错
           
           # ---------- 3. 内存/IO优化 ----------
           add_config "CONFIG_SLUB=y"
@@ -456,22 +449,14 @@ jobs:
             "CONFIG_USER_NS=y"
             
             # ==============================================
-            # 🔧 NAT长时间运行卡顿优化项 (语法修正版)
+            # 🔧 NAT长时间运行卡顿优化项 (4.14内核全兼容，无无效符号)
             # ==============================================
             
             # ---------- 1. conntrack连接跟踪优化 ----------
-            "CONFIG_NF_CONNTRACK_PROCFS=y"
-            "CONFIG_NF_CONNTRACK_EXPECT=y"
-            # 关闭无用跟踪协议
-            # CONFIG_NF_CT_PROTO_SCTP is not set
-            # CONFIG_NF_CT_PROTO_DCCP is not set
-            # 关闭conntrack调试
-            # CONFIG_NF_CONNTRACK_DEBUG is not set
-            # 哈希桶大小固化，cmdline参数正确写法
             "CONFIG_CMDLINE_EXTEND=y"
             "CONFIG_CMDLINE="nf_conntrack.hashsize=65536""
             
-            # ---------- 2. TCP/NAT传输性能优化 (4.14内核兼容) ----------
+            # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
             "CONFIG_TCP_CONG_BBR=y"
             "CONFIG_DEFAULT_TCP_CONG=bbr"
             "CONFIG_NET_SCH_FQ=y"
@@ -480,7 +465,8 @@ jobs:
             "CONFIG_DEFAULT_NET_SCH=fq"
             "CONFIG_TCP_WINDOW_SCALING=y"
             "CONFIG_TCP_FASTOPEN=y"
-            "CONFIG_NET_RX_BUSY_POLL=y"
+            "CONFIG_TCP_FASTOPEN_DEFAULT=1"
+            # 4.14不支持NET_RX_BUSY_POLL，直接删除避免报错
             
             # ---------- 3. 内存/IO优化 ----------
             "CONFIG_SLUB=y"
