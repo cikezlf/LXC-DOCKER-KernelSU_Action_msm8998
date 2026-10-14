@@ -332,22 +332,7 @@ jobs:
           
           # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
           add_config "CONFIG_TCP_CONG_BBR=y"
-          add_config "CONFIG_DEFAULT_TCP_CONG=bbr"
-          add_config "CONFIG_NET_SCH_FQ=y"
-          add_config "CONFIG_NET_SCH_FQ_CODEL=y"
-          add_config "CONFIG_NET_SCH_DEFAULT=y"
-          add_config "CONFIG_DEFAULT_NET_SCH=fq"
-          add_config "CONFIG_TCP_WINDOW_SCALING=y"
-          add_config "CONFIG_TCP_FASTOPEN=y"
-          add_config "CONFIG_TCP_FASTOPEN_DEFAULT=1"
-          # 4.14不支持NET_RX_BUSY_POLL，直接删除避免报错
-          
-          # ---------- 3. 内存/IO优化 ----------
-          add_config "CONFIG_SLUB=y"
-          # CONFIG_SLUB_DEBUG is not set
-          add_config "CONFIG_SLABINFO=y"
-          add_config "CONFIG_COMPACTION=y"
-          add_config "CONFIG_ZRAM=y"
+
           
           echo "[✓] Docker/LXC 全量配置已写入"
 
@@ -458,22 +443,7 @@ jobs:
             
             # ---------- 2. TCP/NAT传输性能优化 (4.14内核原生支持) ----------
             "CONFIG_TCP_CONG_BBR=y"
-            "CONFIG_DEFAULT_TCP_CONG=bbr"
-            "CONFIG_NET_SCH_FQ=y"
-            "CONFIG_NET_SCH_FQ_CODEL=y"
-            "CONFIG_NET_SCH_DEFAULT=y"
-            "CONFIG_DEFAULT_NET_SCH=fq"
-            "CONFIG_TCP_WINDOW_SCALING=y"
-            "CONFIG_TCP_FASTOPEN=y"
-            "CONFIG_TCP_FASTOPEN_DEFAULT=1"
-            # 4.14不支持NET_RX_BUSY_POLL，直接删除避免报错
-            
-            # ---------- 3. 内存/IO优化 ----------
-            "CONFIG_SLUB=y"
-            # CONFIG_SLUB_DEBUG is not set
-            "CONFIG_SLABINFO=y"
-            "CONFIG_COMPACTION=y"
-            "CONFIG_ZRAM=y"
+
 
             
           )
